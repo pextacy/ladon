@@ -1,0 +1,11 @@
+{
+  "name": "color-fn-utils",
+  "version": "1.0.2",
+  "description": "LADON DEMO CANARY — harmless. Lives only on a local Verdaccio registry.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "publishConfig": { "registry": "http://localhost:4873/" }
+}

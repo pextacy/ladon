@@ -1,0 +1,13 @@
+{
+  "name": "demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "registry": "verdaccio --config ./verdaccio/config.yaml --listen 127.0.0.1:4873",
+    "publish-canaries": "node ./scripts/publish-canaries.mjs",
+    "install-canary": "node ./scripts/install-canary.mjs",
+    "test": "node --test ./scripts/*.test.mjs"
+  },
+  "devDependencies": { "verdaccio": "^7.1.0" }
+}

@@ -1,0 +1,29 @@
+# Ladon demo registry — LOCAL ONLY. Canary packages live here and nowhere else.
+storage: ./storage
+auth:
+  htpasswd:
+    file: ./htpasswd
+    max_users: 10
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+packages:
+  # Canary packages: served only from this registry, never proxied, never on public npm.
+  'color-fn-utils':
+    access: $all
+    publish: $authenticated
+  'ladon-canary-*':
+    access: $all
+    publish: $authenticated
+  # Everything else is a read-only proxy of npmjs so normal installs still work.
+  '@*/*':
+    access: $all
+    publish: $nobody
+    proxy: npmjs
+  '**':
+    access: $all
+    publish: $nobody
+    proxy: npmjs
+server:
+  keepAliveTimeout: 60
+log: { type: stdout, format: pretty, level: warn }
