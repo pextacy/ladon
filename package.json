@@ -17,6 +17,7 @@
     "demo:publish-canaries": "pnpm --filter demo publish-canaries",
     "demo:install-canary": "pnpm --filter demo install-canary",
     "eval": "pnpm --filter @ladon/core build && node scripts/eval.mjs",
-    "demo:generate-canaries": "node demo/canaries/generate.mjs"
+    "demo:generate-canaries": "node demo/canaries/generate.mjs",
+    "ladon": "node packages/cli/dist/index.js"
   }
 }
