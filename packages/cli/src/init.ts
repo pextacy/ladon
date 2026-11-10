@@ -3,7 +3,8 @@ import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { keyFingerprint } from "@ladon/core";
 import { keyHello } from "./approve/key.js";
-import { syncPasskeys } from "./approve/passkey.js";
+import { pinPasskey, serverPasskeys } from "./approve/passkey.js";
+import { humanApprovesApproverChange } from "./confirm.js";
 import { listKeyPorts, openSerial } from "./approve/serial.js";
 import { CLI_ENTRY } from "./client.js";
 import { loadConfig, loadState, saveConfig, saveState } from "./config.js";
@@ -24,8 +25,11 @@ export function installClaudeHooks(settingsPath: string): "added" | "present" {
   }
   settings.hooks ??= {};
   const has = (event: string) => (settings.hooks![event] ?? []).some((e) => e.hooks?.some((h) => h.command.includes("hook claude-")));
-  if (has("PreToolUse") && has("SessionStart")) return "present";
-  if (!has("PreToolUse")) (settings.hooks.PreToolUse ??= []).push({ matcher: "Bash", hooks: [{ type: "command", command: cli("hook claude-pre-tool-use"), timeout: 150 }] });
+  const MATCHER = "Bash|Edit|Write|MultiEdit|NotebookEdit";
+  const ours = (settings.hooks.PreToolUse ?? []).find((e) => e.hooks?.some((h) => h.command.includes("hook claude-pre-tool-use")));
+  if (ours && ours.matcher !== MATCHER) ours.matcher = MATCHER; // upgrade older installs
+  else if (has("PreToolUse") && has("SessionStart")) return "present";
+  if (!has("PreToolUse")) (settings.hooks.PreToolUse ??= []).push({ matcher: MATCHER, hooks: [{ type: "command", command: cli("hook claude-pre-tool-use"), timeout: 150 }] });
   if (!has("SessionStart")) (settings.hooks.SessionStart ??= []).push({ hooks: [{ type: "command", command: cli("hook claude-session-start"), timeout: 20 }] });
   mkdirSync(dirname(settingsPath), { recursive: true });
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
@@ -58,8 +62,15 @@ export async function pairKey(log: (s: string) => void): Promise<boolean> {
   const link = await openSerial(path);
   try {
     const hello = await keyHello(link);
+    const before = loadConfig();
+    if (before.key?.publicKey === hello.pk) {
+      log(`  ✓ Ladon Key ${keyFingerprint(hello.pk)} already paired`);
+      return true;
+    }
+    if (before.key) log(`  replacing previously paired Key ${keyFingerprint(before.key.publicKey)}`);
+    await link.close(); // the existing Key (if any) may need the port for the approval below
+    if (!(await humanApprovesApproverChange(`Ladon Key ${keyFingerprint(hello.pk)} (check the Key's screen shows this code)`, log))) return false;
     const cfg = loadConfig();
-    if (cfg.key && cfg.key.publicKey !== hello.pk) log(`  replacing previously paired Key ${keyFingerprint(cfg.key.publicKey)}`);
     cfg.key = { publicKey: hello.pk, path, pairedAt: new Date().toISOString(), ...(hello.name ? { name: hello.name } : {}) };
     saveConfig(cfg);
     const st = loadState();
@@ -83,12 +94,18 @@ export async function registerDevice(log: (s: string) => void): Promise<string |
   return d.pairUrl;
 }
 
-export async function waitForPasskey(log: (s: string) => void, timeoutMs = 5 * 60_000): Promise<boolean> {
+/** Wait for a passkey registered after `since`, then pin it only once a human confirms. */
+export async function waitForPasskey(log: (s: string) => void, timeoutMs = 5 * 60_000, since = Date.now() - 60_000): Promise<boolean> {
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
-    const r = await syncPasskeys().catch(() => ({ added: 0, total: 0 }));
-    if (r.added > 0) {
-      log(`  ✓ pinned ${r.added} passkey(s) — approvals from them are verified on this machine`);
+    const list = await serverPasskeys().catch(() => []);
+    const pinned = new Set(loadConfig().passkeys.map((p) => p.credentialId));
+    const fresh = list.find((p) => !pinned.has(p.credentialId) && (!p.createdAt || Date.parse(p.createdAt) >= since));
+    if (fresh) {
+      const what = `passkey "${fresh.label ?? "passkey"}" (${fresh.credentialId.slice(0, 8)}…, created ${fresh.createdAt?.slice(11, 19) ?? "just now"})`;
+      if (!(await humanApprovesApproverChange(what, log))) return false;
+      pinPasskey(fresh);
+      log(`  ✓ pinned ${what} — approvals from it are verified on this machine`);
       return true;
     }
     await new Promise((res) => setTimeout(res, 2500));

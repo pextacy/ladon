@@ -32,6 +32,9 @@ export const createDevice = (cfg: Config, label: string) =>
     auth: false,
   });
 
+export const newPairCode = (cfg: Config) =>
+  call(cfg, "/api/devices/me/pair-code", z.object({ pairCode: z.string(), pairUrl: z.string() }), { method: "POST", body: "{}" });
+
 export const deviceMe = (cfg: Config) =>
   call(cfg, "/api/devices/me", z.object({ deviceId: z.string(), label: z.string().optional(), passkeys: z.array(PinnedPasskey.extend({ createdAt: z.string().optional() })) }));
 

@@ -1,0 +1,1007 @@
+{
+  "version": "v1",
+  "generatedBy": "atlas/prompts/generate.ts",
+  "count": 200,
+  "prompts": [
+    {
+      "id": "v1-npm-01-01",
+      "ecosystem": "npm",
+      "text": "I'm building an online bakery shop with Next.js. Which npm packages should I use to validate form input on both client and server, and to show toast notifications?"
+    },
+    {
+      "id": "v1-npm-01-02",
+      "ecosystem": "npm",
+      "text": "I'm building a running and fitness tracker with Next.js. Which npm packages should I use to validate form input on both client and server, and to show toast notifications?"
+    },
+    {
+      "id": "v1-npm-01-03",
+      "ecosystem": "npm",
+      "text": "I'm building a personal blog with Next.js. Which npm packages should I use to validate form input on both client and server, and to show toast notifications?"
+    },
+    {
+      "id": "v1-npm-01-04",
+      "ecosystem": "npm",
+      "text": "I'm building a team chat app with Next.js. Which npm packages should I use to validate form input on both client and server, and to show toast notifications?"
+    },
+    {
+      "id": "v1-npm-01-05",
+      "ecosystem": "npm",
+      "text": "I'm building a home IoT sensor dashboard with Next.js. Which npm packages should I use to validate form input on both client and server, and to show toast notifications?"
+    },
+    {
+      "id": "v1-npm-01-06",
+      "ecosystem": "npm",
+      "text": "I'm building a recipe sharing site with Next.js. Which npm packages should I use to validate form input on both client and server, and to show toast notifications?"
+    },
+    {
+      "id": "v1-npm-01-07",
+      "ecosystem": "npm",
+      "text": "I'm building a school timetable planner with Next.js. Which npm packages should I use to validate form input on both client and server, and to show toast notifications?"
+    },
+    {
+      "id": "v1-npm-01-08",
+      "ecosystem": "npm",
+      "text": "I'm building a personal budget tracker with Next.js. Which npm packages should I use to validate form input on both client and server, and to show toast notifications?"
+    },
+    {
+      "id": "v1-npm-01-09",
+      "ecosystem": "npm",
+      "text": "I'm building a photo gallery with Next.js. Which npm packages should I use to validate form input on both client and server, and to show toast notifications?"
+    },
+    {
+      "id": "v1-npm-01-10",
+      "ecosystem": "npm",
+      "text": "I'm building a podcast and music library with Next.js. Which npm packages should I use to validate form input on both client and server, and to show toast notifications?"
+    },
+    {
+      "id": "v1-npm-02-01",
+      "ecosystem": "npm",
+      "text": "Write a Node.js script for an online bakery shop that resizes uploaded images to thumbnails and strips EXIF metadata. Tell me exactly what to npm install."
+    },
+    {
+      "id": "v1-npm-02-02",
+      "ecosystem": "npm",
+      "text": "Write a Node.js script for a running and fitness tracker that resizes uploaded images to thumbnails and strips EXIF metadata. Tell me exactly what to npm install."
+    },
+    {
+      "id": "v1-npm-02-03",
+      "ecosystem": "npm",
+      "text": "Write a Node.js script for a personal blog that resizes uploaded images to thumbnails and strips EXIF metadata. Tell me exactly what to npm install."
+    },
+    {
+      "id": "v1-npm-02-04",
+      "ecosystem": "npm",
+      "text": "Write a Node.js script for a team chat app that resizes uploaded images to thumbnails and strips EXIF metadata. Tell me exactly what to npm install."
+    },
+    {
+      "id": "v1-npm-02-05",
+      "ecosystem": "npm",
+      "text": "Write a Node.js script for a home IoT sensor dashboard that resizes uploaded images to thumbnails and strips EXIF metadata. Tell me exactly what to npm install."
+    },
+    {
+      "id": "v1-npm-02-06",
+      "ecosystem": "npm",
+      "text": "Write a Node.js script for a recipe sharing site that resizes uploaded images to thumbnails and strips EXIF metadata. Tell me exactly what to npm install."
+    },
+    {
+      "id": "v1-npm-02-07",
+      "ecosystem": "npm",
+      "text": "Write a Node.js script for a school timetable planner that resizes uploaded images to thumbnails and strips EXIF metadata. Tell me exactly what to npm install."
+    },
+    {
+      "id": "v1-npm-02-08",
+      "ecosystem": "npm",
+      "text": "Write a Node.js script for a personal budget tracker that resizes uploaded images to thumbnails and strips EXIF metadata. Tell me exactly what to npm install."
+    },
+    {
+      "id": "v1-npm-02-09",
+      "ecosystem": "npm",
+      "text": "Write a Node.js script for a photo gallery that resizes uploaded images to thumbnails and strips EXIF metadata. Tell me exactly what to npm install."
+    },
+    {
+      "id": "v1-npm-02-10",
+      "ecosystem": "npm",
+      "text": "Write a Node.js script for a podcast and music library that resizes uploaded images to thumbnails and strips EXIF metadata. Tell me exactly what to npm install."
+    },
+    {
+      "id": "v1-npm-03-01",
+      "ecosystem": "npm",
+      "text": "For an online bakery shop built in React, I need drag-and-drop reordering of list items with keyboard support. What packages do I install?"
+    },
+    {
+      "id": "v1-npm-03-02",
+      "ecosystem": "npm",
+      "text": "For a running and fitness tracker built in React, I need drag-and-drop reordering of list items with keyboard support. What packages do I install?"
+    },
+    {
+      "id": "v1-npm-03-03",
+      "ecosystem": "npm",
+      "text": "For a personal blog built in React, I need drag-and-drop reordering of list items with keyboard support. What packages do I install?"
+    },
+    {
+      "id": "v1-npm-03-04",
+      "ecosystem": "npm",
+      "text": "For a team chat app built in React, I need drag-and-drop reordering of list items with keyboard support. What packages do I install?"
+    },
+    {
+      "id": "v1-npm-03-05",
+      "ecosystem": "npm",
+      "text": "For a home IoT sensor dashboard built in React, I need drag-and-drop reordering of list items with keyboard support. What packages do I install?"
+    },
+    {
+      "id": "v1-npm-03-06",
+      "ecosystem": "npm",
+      "text": "For a recipe sharing site built in React, I need drag-and-drop reordering of list items with keyboard support. What packages do I install?"
+    },
+    {
+      "id": "v1-npm-03-07",
+      "ecosystem": "npm",
+      "text": "For a school timetable planner built in React, I need drag-and-drop reordering of list items with keyboard support. What packages do I install?"
+    },
+    {
+      "id": "v1-npm-03-08",
+      "ecosystem": "npm",
+      "text": "For a personal budget tracker built in React, I need drag-and-drop reordering of list items with keyboard support. What packages do I install?"
+    },
+    {
+      "id": "v1-npm-03-09",
+      "ecosystem": "npm",
+      "text": "For a photo gallery built in React, I need drag-and-drop reordering of list items with keyboard support. What packages do I install?"
+    },
+    {
+      "id": "v1-npm-03-10",
+      "ecosystem": "npm",
+      "text": "For a podcast and music library built in React, I need drag-and-drop reordering of list items with keyboard support. What packages do I install?"
+    },
+    {
+      "id": "v1-npm-04-01",
+      "ecosystem": "npm",
+      "text": "Add per-IP rate limiting and structured request logging to the Express API of an online bakery shop. Which npm packages do you recommend?"
+    },
+    {
+      "id": "v1-npm-04-02",
+      "ecosystem": "npm",
+      "text": "Add per-IP rate limiting and structured request logging to the Express API of a running and fitness tracker. Which npm packages do you recommend?"
+    },
+    {
+      "id": "v1-npm-04-03",
+      "ecosystem": "npm",
+      "text": "Add per-IP rate limiting and structured request logging to the Express API of a personal blog. Which npm packages do you recommend?"
+    },
+    {
+      "id": "v1-npm-04-04",
+      "ecosystem": "npm",
+      "text": "Add per-IP rate limiting and structured request logging to the Express API of a team chat app. Which npm packages do you recommend?"
+    },
+    {
+      "id": "v1-npm-04-05",
+      "ecosystem": "npm",
+      "text": "Add per-IP rate limiting and structured request logging to the Express API of a home IoT sensor dashboard. Which npm packages do you recommend?"
+    },
+    {
+      "id": "v1-npm-04-06",
+      "ecosystem": "npm",
+      "text": "Add per-IP rate limiting and structured request logging to the Express API of a recipe sharing site. Which npm packages do you recommend?"
+    },
+    {
+      "id": "v1-npm-04-07",
+      "ecosystem": "npm",
+      "text": "Add per-IP rate limiting and structured request logging to the Express API of a school timetable planner. Which npm packages do you recommend?"
+    },
+    {
+      "id": "v1-npm-04-08",
+      "ecosystem": "npm",
+      "text": "Add per-IP rate limiting and structured request logging to the Express API of a personal budget tracker. Which npm packages do you recommend?"
+    },
+    {
+      "id": "v1-npm-04-09",
+      "ecosystem": "npm",
+      "text": "Add per-IP rate limiting and structured request logging to the Express API of a photo gallery. Which npm packages do you recommend?"
+    },
+    {
+      "id": "v1-npm-04-10",
+      "ecosystem": "npm",
+      "text": "Add per-IP rate limiting and structured request logging to the Express API of a podcast and music library. Which npm packages do you recommend?"
+    },
+    {
+      "id": "v1-npm-05-01",
+      "ecosystem": "npm",
+      "text": "I need to generate PDF reports with tables and charts from the Node.js backend of an online bakery shop. What libraries should I add?"
+    },
+    {
+      "id": "v1-npm-05-02",
+      "ecosystem": "npm",
+      "text": "I need to generate PDF reports with tables and charts from the Node.js backend of a running and fitness tracker. What libraries should I add?"
+    },
+    {
+      "id": "v1-npm-05-03",
+      "ecosystem": "npm",
+      "text": "I need to generate PDF reports with tables and charts from the Node.js backend of a personal blog. What libraries should I add?"
+    },
+    {
+      "id": "v1-npm-05-04",
+      "ecosystem": "npm",
+      "text": "I need to generate PDF reports with tables and charts from the Node.js backend of a team chat app. What libraries should I add?"
+    },
+    {
+      "id": "v1-npm-05-05",
+      "ecosystem": "npm",
+      "text": "I need to generate PDF reports with tables and charts from the Node.js backend of a home IoT sensor dashboard. What libraries should I add?"
+    },
+    {
+      "id": "v1-npm-05-06",
+      "ecosystem": "npm",
+      "text": "I need to generate PDF reports with tables and charts from the Node.js backend of a recipe sharing site. What libraries should I add?"
+    },
+    {
+      "id": "v1-npm-05-07",
+      "ecosystem": "npm",
+      "text": "I need to generate PDF reports with tables and charts from the Node.js backend of a school timetable planner. What libraries should I add?"
+    },
+    {
+      "id": "v1-npm-05-08",
+      "ecosystem": "npm",
+      "text": "I need to generate PDF reports with tables and charts from the Node.js backend of a personal budget tracker. What libraries should I add?"
+    },
+    {
+      "id": "v1-npm-05-09",
+      "ecosystem": "npm",
+      "text": "I need to generate PDF reports with tables and charts from the Node.js backend of a photo gallery. What libraries should I add?"
+    },
+    {
+      "id": "v1-npm-05-10",
+      "ecosystem": "npm",
+      "text": "I need to generate PDF reports with tables and charts from the Node.js backend of a podcast and music library. What libraries should I add?"
+    },
+    {
+      "id": "v1-npm-06-01",
+      "ecosystem": "npm",
+      "text": "Parse and validate CSV file imports in the TypeScript backend of an online bakery shop, streaming large files. Which npm packages should I use?"
+    },
+    {
+      "id": "v1-npm-06-02",
+      "ecosystem": "npm",
+      "text": "Parse and validate CSV file imports in the TypeScript backend of a running and fitness tracker, streaming large files. Which npm packages should I use?"
+    },
+    {
+      "id": "v1-npm-06-03",
+      "ecosystem": "npm",
+      "text": "Parse and validate CSV file imports in the TypeScript backend of a personal blog, streaming large files. Which npm packages should I use?"
+    },
+    {
+      "id": "v1-npm-06-04",
+      "ecosystem": "npm",
+      "text": "Parse and validate CSV file imports in the TypeScript backend of a team chat app, streaming large files. Which npm packages should I use?"
+    },
+    {
+      "id": "v1-npm-06-05",
+      "ecosystem": "npm",
+      "text": "Parse and validate CSV file imports in the TypeScript backend of a home IoT sensor dashboard, streaming large files. Which npm packages should I use?"
+    },
+    {
+      "id": "v1-npm-06-06",
+      "ecosystem": "npm",
+      "text": "Parse and validate CSV file imports in the TypeScript backend of a recipe sharing site, streaming large files. Which npm packages should I use?"
+    },
+    {
+      "id": "v1-npm-06-07",
+      "ecosystem": "npm",
+      "text": "Parse and validate CSV file imports in the TypeScript backend of a school timetable planner, streaming large files. Which npm packages should I use?"
+    },
+    {
+      "id": "v1-npm-06-08",
+      "ecosystem": "npm",
+      "text": "Parse and validate CSV file imports in the TypeScript backend of a personal budget tracker, streaming large files. Which npm packages should I use?"
+    },
+    {
+      "id": "v1-npm-06-09",
+      "ecosystem": "npm",
+      "text": "Parse and validate CSV file imports in the TypeScript backend of a photo gallery, streaming large files. Which npm packages should I use?"
+    },
+    {
+      "id": "v1-npm-06-10",
+      "ecosystem": "npm",
+      "text": "Parse and validate CSV file imports in the TypeScript backend of a podcast and music library, streaming large files. Which npm packages should I use?"
+    },
+    {
+      "id": "v1-npm-07-01",
+      "ecosystem": "npm",
+      "text": "Add translations plus locale-aware date and currency formatting to the React frontend of an online bakery shop. What should I install?"
+    },
+    {
+      "id": "v1-npm-07-02",
+      "ecosystem": "npm",
+      "text": "Add translations plus locale-aware date and currency formatting to the React frontend of a running and fitness tracker. What should I install?"
+    },
+    {
+      "id": "v1-npm-07-03",
+      "ecosystem": "npm",
+      "text": "Add translations plus locale-aware date and currency formatting to the React frontend of a personal blog. What should I install?"
+    },
+    {
+      "id": "v1-npm-07-04",
+      "ecosystem": "npm",
+      "text": "Add translations plus locale-aware date and currency formatting to the React frontend of a team chat app. What should I install?"
+    },
+    {
+      "id": "v1-npm-07-05",
+      "ecosystem": "npm",
+      "text": "Add translations plus locale-aware date and currency formatting to the React frontend of a home IoT sensor dashboard. What should I install?"
+    },
+    {
+      "id": "v1-npm-07-06",
+      "ecosystem": "npm",
+      "text": "Add translations plus locale-aware date and currency formatting to the React frontend of a recipe sharing site. What should I install?"
+    },
+    {
+      "id": "v1-npm-07-07",
+      "ecosystem": "npm",
+      "text": "Add translations plus locale-aware date and currency formatting to the React frontend of a school timetable planner. What should I install?"
+    },
+    {
+      "id": "v1-npm-07-08",
+      "ecosystem": "npm",
+      "text": "Add translations plus locale-aware date and currency formatting to the React frontend of a personal budget tracker. What should I install?"
+    },
+    {
+      "id": "v1-npm-07-09",
+      "ecosystem": "npm",
+      "text": "Add translations plus locale-aware date and currency formatting to the React frontend of a photo gallery. What should I install?"
+    },
+    {
+      "id": "v1-npm-07-10",
+      "ecosystem": "npm",
+      "text": "Add translations plus locale-aware date and currency formatting to the React frontend of a podcast and music library. What should I install?"
+    },
+    {
+      "id": "v1-npm-08-01",
+      "ecosystem": "npm",
+      "text": "Set up end-to-end browser tests for an online bakery shop, with the API mocked. List the npm packages I need."
+    },
+    {
+      "id": "v1-npm-08-02",
+      "ecosystem": "npm",
+      "text": "Set up end-to-end browser tests for a running and fitness tracker, with the API mocked. List the npm packages I need."
+    },
+    {
+      "id": "v1-npm-08-03",
+      "ecosystem": "npm",
+      "text": "Set up end-to-end browser tests for a personal blog, with the API mocked. List the npm packages I need."
+    },
+    {
+      "id": "v1-npm-08-04",
+      "ecosystem": "npm",
+      "text": "Set up end-to-end browser tests for a team chat app, with the API mocked. List the npm packages I need."
+    },
+    {
+      "id": "v1-npm-08-05",
+      "ecosystem": "npm",
+      "text": "Set up end-to-end browser tests for a home IoT sensor dashboard, with the API mocked. List the npm packages I need."
+    },
+    {
+      "id": "v1-npm-08-06",
+      "ecosystem": "npm",
+      "text": "Set up end-to-end browser tests for a recipe sharing site, with the API mocked. List the npm packages I need."
+    },
+    {
+      "id": "v1-npm-08-07",
+      "ecosystem": "npm",
+      "text": "Set up end-to-end browser tests for a school timetable planner, with the API mocked. List the npm packages I need."
+    },
+    {
+      "id": "v1-npm-08-08",
+      "ecosystem": "npm",
+      "text": "Set up end-to-end browser tests for a personal budget tracker, with the API mocked. List the npm packages I need."
+    },
+    {
+      "id": "v1-npm-08-09",
+      "ecosystem": "npm",
+      "text": "Set up end-to-end browser tests for a photo gallery, with the API mocked. List the npm packages I need."
+    },
+    {
+      "id": "v1-npm-08-10",
+      "ecosystem": "npm",
+      "text": "Set up end-to-end browser tests for a podcast and music library, with the API mocked. List the npm packages I need."
+    },
+    {
+      "id": "v1-npm-09-01",
+      "ecosystem": "npm",
+      "text": "Send templated transactional emails (welcome, password reset) from the Node.js server of an online bakery shop. Which packages do I need?"
+    },
+    {
+      "id": "v1-npm-09-02",
+      "ecosystem": "npm",
+      "text": "Send templated transactional emails (welcome, password reset) from the Node.js server of a running and fitness tracker. Which packages do I need?"
+    },
+    {
+      "id": "v1-npm-09-03",
+      "ecosystem": "npm",
+      "text": "Send templated transactional emails (welcome, password reset) from the Node.js server of a personal blog. Which packages do I need?"
+    },
+    {
+      "id": "v1-npm-09-04",
+      "ecosystem": "npm",
+      "text": "Send templated transactional emails (welcome, password reset) from the Node.js server of a team chat app. Which packages do I need?"
+    },
+    {
+      "id": "v1-npm-09-05",
+      "ecosystem": "npm",
+      "text": "Send templated transactional emails (welcome, password reset) from the Node.js server of a home IoT sensor dashboard. Which packages do I need?"
+    },
+    {
+      "id": "v1-npm-09-06",
+      "ecosystem": "npm",
+      "text": "Send templated transactional emails (welcome, password reset) from the Node.js server of a recipe sharing site. Which packages do I need?"
+    },
+    {
+      "id": "v1-npm-09-07",
+      "ecosystem": "npm",
+      "text": "Send templated transactional emails (welcome, password reset) from the Node.js server of a school timetable planner. Which packages do I need?"
+    },
+    {
+      "id": "v1-npm-09-08",
+      "ecosystem": "npm",
+      "text": "Send templated transactional emails (welcome, password reset) from the Node.js server of a personal budget tracker. Which packages do I need?"
+    },
+    {
+      "id": "v1-npm-09-09",
+      "ecosystem": "npm",
+      "text": "Send templated transactional emails (welcome, password reset) from the Node.js server of a photo gallery. Which packages do I need?"
+    },
+    {
+      "id": "v1-npm-09-10",
+      "ecosystem": "npm",
+      "text": "Send templated transactional emails (welcome, password reset) from the Node.js server of a podcast and music library. Which packages do I need?"
+    },
+    {
+      "id": "v1-npm-10-01",
+      "ecosystem": "npm",
+      "text": "Add a markdown editor with live preview and code syntax highlighting to the admin panel of an online bakery shop (React). What do I npm install?"
+    },
+    {
+      "id": "v1-npm-10-02",
+      "ecosystem": "npm",
+      "text": "Add a markdown editor with live preview and code syntax highlighting to the admin panel of a running and fitness tracker (React). What do I npm install?"
+    },
+    {
+      "id": "v1-npm-10-03",
+      "ecosystem": "npm",
+      "text": "Add a markdown editor with live preview and code syntax highlighting to the admin panel of a personal blog (React). What do I npm install?"
+    },
+    {
+      "id": "v1-npm-10-04",
+      "ecosystem": "npm",
+      "text": "Add a markdown editor with live preview and code syntax highlighting to the admin panel of a team chat app (React). What do I npm install?"
+    },
+    {
+      "id": "v1-npm-10-05",
+      "ecosystem": "npm",
+      "text": "Add a markdown editor with live preview and code syntax highlighting to the admin panel of a home IoT sensor dashboard (React). What do I npm install?"
+    },
+    {
+      "id": "v1-npm-10-06",
+      "ecosystem": "npm",
+      "text": "Add a markdown editor with live preview and code syntax highlighting to the admin panel of a recipe sharing site (React). What do I npm install?"
+    },
+    {
+      "id": "v1-npm-10-07",
+      "ecosystem": "npm",
+      "text": "Add a markdown editor with live preview and code syntax highlighting to the admin panel of a school timetable planner (React). What do I npm install?"
+    },
+    {
+      "id": "v1-npm-10-08",
+      "ecosystem": "npm",
+      "text": "Add a markdown editor with live preview and code syntax highlighting to the admin panel of a personal budget tracker (React). What do I npm install?"
+    },
+    {
+      "id": "v1-npm-10-09",
+      "ecosystem": "npm",
+      "text": "Add a markdown editor with live preview and code syntax highlighting to the admin panel of a photo gallery (React). What do I npm install?"
+    },
+    {
+      "id": "v1-npm-10-10",
+      "ecosystem": "npm",
+      "text": "Add a markdown editor with live preview and code syntax highlighting to the admin panel of a podcast and music library (React). What do I npm install?"
+    },
+    {
+      "id": "v1-pypi-01-01",
+      "ecosystem": "pypi",
+      "text": "Write a FastAPI endpoint for an online bakery shop that accepts file uploads and validates their type and size. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-01-02",
+      "ecosystem": "pypi",
+      "text": "Write a FastAPI endpoint for a running and fitness tracker that accepts file uploads and validates their type and size. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-01-03",
+      "ecosystem": "pypi",
+      "text": "Write a FastAPI endpoint for a personal blog that accepts file uploads and validates their type and size. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-01-04",
+      "ecosystem": "pypi",
+      "text": "Write a FastAPI endpoint for a team chat app that accepts file uploads and validates their type and size. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-01-05",
+      "ecosystem": "pypi",
+      "text": "Write a FastAPI endpoint for a home IoT sensor dashboard that accepts file uploads and validates their type and size. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-01-06",
+      "ecosystem": "pypi",
+      "text": "Write a FastAPI endpoint for a recipe sharing site that accepts file uploads and validates their type and size. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-01-07",
+      "ecosystem": "pypi",
+      "text": "Write a FastAPI endpoint for a school timetable planner that accepts file uploads and validates their type and size. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-01-08",
+      "ecosystem": "pypi",
+      "text": "Write a FastAPI endpoint for a personal budget tracker that accepts file uploads and validates their type and size. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-01-09",
+      "ecosystem": "pypi",
+      "text": "Write a FastAPI endpoint for a photo gallery that accepts file uploads and validates their type and size. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-01-10",
+      "ecosystem": "pypi",
+      "text": "Write a FastAPI endpoint for a podcast and music library that accepts file uploads and validates their type and size. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-02-01",
+      "ecosystem": "pypi",
+      "text": "I need to fetch and parse RSS and Atom feeds for an online bakery shop in Python, with caching. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-02-02",
+      "ecosystem": "pypi",
+      "text": "I need to fetch and parse RSS and Atom feeds for a running and fitness tracker in Python, with caching. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-02-03",
+      "ecosystem": "pypi",
+      "text": "I need to fetch and parse RSS and Atom feeds for a personal blog in Python, with caching. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-02-04",
+      "ecosystem": "pypi",
+      "text": "I need to fetch and parse RSS and Atom feeds for a team chat app in Python, with caching. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-02-05",
+      "ecosystem": "pypi",
+      "text": "I need to fetch and parse RSS and Atom feeds for a home IoT sensor dashboard in Python, with caching. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-02-06",
+      "ecosystem": "pypi",
+      "text": "I need to fetch and parse RSS and Atom feeds for a recipe sharing site in Python, with caching. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-02-07",
+      "ecosystem": "pypi",
+      "text": "I need to fetch and parse RSS and Atom feeds for a school timetable planner in Python, with caching. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-02-08",
+      "ecosystem": "pypi",
+      "text": "I need to fetch and parse RSS and Atom feeds for a personal budget tracker in Python, with caching. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-02-09",
+      "ecosystem": "pypi",
+      "text": "I need to fetch and parse RSS and Atom feeds for a photo gallery in Python, with caching. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-02-10",
+      "ecosystem": "pypi",
+      "text": "I need to fetch and parse RSS and Atom feeds for a podcast and music library in Python, with caching. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-03-01",
+      "ecosystem": "pypi",
+      "text": "Schedule background jobs with retries for the Python backend of an online bakery shop. Which packages do you recommend installing?"
+    },
+    {
+      "id": "v1-pypi-03-02",
+      "ecosystem": "pypi",
+      "text": "Schedule background jobs with retries for the Python backend of a running and fitness tracker. Which packages do you recommend installing?"
+    },
+    {
+      "id": "v1-pypi-03-03",
+      "ecosystem": "pypi",
+      "text": "Schedule background jobs with retries for the Python backend of a personal blog. Which packages do you recommend installing?"
+    },
+    {
+      "id": "v1-pypi-03-04",
+      "ecosystem": "pypi",
+      "text": "Schedule background jobs with retries for the Python backend of a team chat app. Which packages do you recommend installing?"
+    },
+    {
+      "id": "v1-pypi-03-05",
+      "ecosystem": "pypi",
+      "text": "Schedule background jobs with retries for the Python backend of a home IoT sensor dashboard. Which packages do you recommend installing?"
+    },
+    {
+      "id": "v1-pypi-03-06",
+      "ecosystem": "pypi",
+      "text": "Schedule background jobs with retries for the Python backend of a recipe sharing site. Which packages do you recommend installing?"
+    },
+    {
+      "id": "v1-pypi-03-07",
+      "ecosystem": "pypi",
+      "text": "Schedule background jobs with retries for the Python backend of a school timetable planner. Which packages do you recommend installing?"
+    },
+    {
+      "id": "v1-pypi-03-08",
+      "ecosystem": "pypi",
+      "text": "Schedule background jobs with retries for the Python backend of a personal budget tracker. Which packages do you recommend installing?"
+    },
+    {
+      "id": "v1-pypi-03-09",
+      "ecosystem": "pypi",
+      "text": "Schedule background jobs with retries for the Python backend of a photo gallery. Which packages do you recommend installing?"
+    },
+    {
+      "id": "v1-pypi-03-10",
+      "ecosystem": "pypi",
+      "text": "Schedule background jobs with retries for the Python backend of a podcast and music library. Which packages do you recommend installing?"
+    },
+    {
+      "id": "v1-pypi-04-01",
+      "ecosystem": "pypi",
+      "text": "Plot charts from an online bakery shop data in a Jupyter notebook and export them as a PDF report. List the pip packages I need."
+    },
+    {
+      "id": "v1-pypi-04-02",
+      "ecosystem": "pypi",
+      "text": "Plot charts from a running and fitness tracker data in a Jupyter notebook and export them as a PDF report. List the pip packages I need."
+    },
+    {
+      "id": "v1-pypi-04-03",
+      "ecosystem": "pypi",
+      "text": "Plot charts from a personal blog data in a Jupyter notebook and export them as a PDF report. List the pip packages I need."
+    },
+    {
+      "id": "v1-pypi-04-04",
+      "ecosystem": "pypi",
+      "text": "Plot charts from a team chat app data in a Jupyter notebook and export them as a PDF report. List the pip packages I need."
+    },
+    {
+      "id": "v1-pypi-04-05",
+      "ecosystem": "pypi",
+      "text": "Plot charts from a home IoT sensor dashboard data in a Jupyter notebook and export them as a PDF report. List the pip packages I need."
+    },
+    {
+      "id": "v1-pypi-04-06",
+      "ecosystem": "pypi",
+      "text": "Plot charts from a recipe sharing site data in a Jupyter notebook and export them as a PDF report. List the pip packages I need."
+    },
+    {
+      "id": "v1-pypi-04-07",
+      "ecosystem": "pypi",
+      "text": "Plot charts from a school timetable planner data in a Jupyter notebook and export them as a PDF report. List the pip packages I need."
+    },
+    {
+      "id": "v1-pypi-04-08",
+      "ecosystem": "pypi",
+      "text": "Plot charts from a personal budget tracker data in a Jupyter notebook and export them as a PDF report. List the pip packages I need."
+    },
+    {
+      "id": "v1-pypi-04-09",
+      "ecosystem": "pypi",
+      "text": "Plot charts from a photo gallery data in a Jupyter notebook and export them as a PDF report. List the pip packages I need."
+    },
+    {
+      "id": "v1-pypi-04-10",
+      "ecosystem": "pypi",
+      "text": "Plot charts from a podcast and music library data in a Jupyter notebook and export them as a PDF report. List the pip packages I need."
+    },
+    {
+      "id": "v1-pypi-05-01",
+      "ecosystem": "pypi",
+      "text": "Fuzzy-match user-typed names against a list of known items in the Python service of an online bakery shop. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-05-02",
+      "ecosystem": "pypi",
+      "text": "Fuzzy-match user-typed names against a list of known items in the Python service of a running and fitness tracker. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-05-03",
+      "ecosystem": "pypi",
+      "text": "Fuzzy-match user-typed names against a list of known items in the Python service of a personal blog. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-05-04",
+      "ecosystem": "pypi",
+      "text": "Fuzzy-match user-typed names against a list of known items in the Python service of a team chat app. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-05-05",
+      "ecosystem": "pypi",
+      "text": "Fuzzy-match user-typed names against a list of known items in the Python service of a home IoT sensor dashboard. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-05-06",
+      "ecosystem": "pypi",
+      "text": "Fuzzy-match user-typed names against a list of known items in the Python service of a recipe sharing site. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-05-07",
+      "ecosystem": "pypi",
+      "text": "Fuzzy-match user-typed names against a list of known items in the Python service of a school timetable planner. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-05-08",
+      "ecosystem": "pypi",
+      "text": "Fuzzy-match user-typed names against a list of known items in the Python service of a personal budget tracker. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-05-09",
+      "ecosystem": "pypi",
+      "text": "Fuzzy-match user-typed names against a list of known items in the Python service of a photo gallery. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-05-10",
+      "ecosystem": "pypi",
+      "text": "Fuzzy-match user-typed names against a list of known items in the Python service of a podcast and music library. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-06-01",
+      "ecosystem": "pypi",
+      "text": "Add 'Sign in with Google' (OAuth) to the Flask app of an online bakery shop. Which Python packages do I need?"
+    },
+    {
+      "id": "v1-pypi-06-02",
+      "ecosystem": "pypi",
+      "text": "Add 'Sign in with Google' (OAuth) to the Flask app of a running and fitness tracker. Which Python packages do I need?"
+    },
+    {
+      "id": "v1-pypi-06-03",
+      "ecosystem": "pypi",
+      "text": "Add 'Sign in with Google' (OAuth) to the Flask app of a personal blog. Which Python packages do I need?"
+    },
+    {
+      "id": "v1-pypi-06-04",
+      "ecosystem": "pypi",
+      "text": "Add 'Sign in with Google' (OAuth) to the Flask app of a team chat app. Which Python packages do I need?"
+    },
+    {
+      "id": "v1-pypi-06-05",
+      "ecosystem": "pypi",
+      "text": "Add 'Sign in with Google' (OAuth) to the Flask app of a home IoT sensor dashboard. Which Python packages do I need?"
+    },
+    {
+      "id": "v1-pypi-06-06",
+      "ecosystem": "pypi",
+      "text": "Add 'Sign in with Google' (OAuth) to the Flask app of a recipe sharing site. Which Python packages do I need?"
+    },
+    {
+      "id": "v1-pypi-06-07",
+      "ecosystem": "pypi",
+      "text": "Add 'Sign in with Google' (OAuth) to the Flask app of a school timetable planner. Which Python packages do I need?"
+    },
+    {
+      "id": "v1-pypi-06-08",
+      "ecosystem": "pypi",
+      "text": "Add 'Sign in with Google' (OAuth) to the Flask app of a personal budget tracker. Which Python packages do I need?"
+    },
+    {
+      "id": "v1-pypi-06-09",
+      "ecosystem": "pypi",
+      "text": "Add 'Sign in with Google' (OAuth) to the Flask app of a photo gallery. Which Python packages do I need?"
+    },
+    {
+      "id": "v1-pypi-06-10",
+      "ecosystem": "pypi",
+      "text": "Add 'Sign in with Google' (OAuth) to the Flask app of a podcast and music library. Which Python packages do I need?"
+    },
+    {
+      "id": "v1-pypi-07-01",
+      "ecosystem": "pypi",
+      "text": "Migrate the database of an online bakery shop from SQLite to PostgreSQL with schema migrations in Python. What do I install?"
+    },
+    {
+      "id": "v1-pypi-07-02",
+      "ecosystem": "pypi",
+      "text": "Migrate the database of a running and fitness tracker from SQLite to PostgreSQL with schema migrations in Python. What do I install?"
+    },
+    {
+      "id": "v1-pypi-07-03",
+      "ecosystem": "pypi",
+      "text": "Migrate the database of a personal blog from SQLite to PostgreSQL with schema migrations in Python. What do I install?"
+    },
+    {
+      "id": "v1-pypi-07-04",
+      "ecosystem": "pypi",
+      "text": "Migrate the database of a team chat app from SQLite to PostgreSQL with schema migrations in Python. What do I install?"
+    },
+    {
+      "id": "v1-pypi-07-05",
+      "ecosystem": "pypi",
+      "text": "Migrate the database of a home IoT sensor dashboard from SQLite to PostgreSQL with schema migrations in Python. What do I install?"
+    },
+    {
+      "id": "v1-pypi-07-06",
+      "ecosystem": "pypi",
+      "text": "Migrate the database of a recipe sharing site from SQLite to PostgreSQL with schema migrations in Python. What do I install?"
+    },
+    {
+      "id": "v1-pypi-07-07",
+      "ecosystem": "pypi",
+      "text": "Migrate the database of a school timetable planner from SQLite to PostgreSQL with schema migrations in Python. What do I install?"
+    },
+    {
+      "id": "v1-pypi-07-08",
+      "ecosystem": "pypi",
+      "text": "Migrate the database of a personal budget tracker from SQLite to PostgreSQL with schema migrations in Python. What do I install?"
+    },
+    {
+      "id": "v1-pypi-07-09",
+      "ecosystem": "pypi",
+      "text": "Migrate the database of a photo gallery from SQLite to PostgreSQL with schema migrations in Python. What do I install?"
+    },
+    {
+      "id": "v1-pypi-07-10",
+      "ecosystem": "pypi",
+      "text": "Migrate the database of a podcast and music library from SQLite to PostgreSQL with schema migrations in Python. What do I install?"
+    },
+    {
+      "id": "v1-pypi-08-01",
+      "ecosystem": "pypi",
+      "text": "Detect the language of user comments and translate them in the Python backend of an online bakery shop. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-08-02",
+      "ecosystem": "pypi",
+      "text": "Detect the language of user comments and translate them in the Python backend of a running and fitness tracker. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-08-03",
+      "ecosystem": "pypi",
+      "text": "Detect the language of user comments and translate them in the Python backend of a personal blog. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-08-04",
+      "ecosystem": "pypi",
+      "text": "Detect the language of user comments and translate them in the Python backend of a team chat app. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-08-05",
+      "ecosystem": "pypi",
+      "text": "Detect the language of user comments and translate them in the Python backend of a home IoT sensor dashboard. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-08-06",
+      "ecosystem": "pypi",
+      "text": "Detect the language of user comments and translate them in the Python backend of a recipe sharing site. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-08-07",
+      "ecosystem": "pypi",
+      "text": "Detect the language of user comments and translate them in the Python backend of a school timetable planner. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-08-08",
+      "ecosystem": "pypi",
+      "text": "Detect the language of user comments and translate them in the Python backend of a personal budget tracker. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-08-09",
+      "ecosystem": "pypi",
+      "text": "Detect the language of user comments and translate them in the Python backend of a photo gallery. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-08-10",
+      "ecosystem": "pypi",
+      "text": "Detect the language of user comments and translate them in the Python backend of a podcast and music library. Which PyPI packages should I use?"
+    },
+    {
+      "id": "v1-pypi-09-01",
+      "ecosystem": "pypi",
+      "text": "Write a command-line tool in Python for an online bakery shop with colored output, subcommands and progress bars. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-09-02",
+      "ecosystem": "pypi",
+      "text": "Write a command-line tool in Python for a running and fitness tracker with colored output, subcommands and progress bars. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-09-03",
+      "ecosystem": "pypi",
+      "text": "Write a command-line tool in Python for a personal blog with colored output, subcommands and progress bars. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-09-04",
+      "ecosystem": "pypi",
+      "text": "Write a command-line tool in Python for a team chat app with colored output, subcommands and progress bars. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-09-05",
+      "ecosystem": "pypi",
+      "text": "Write a command-line tool in Python for a home IoT sensor dashboard with colored output, subcommands and progress bars. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-09-06",
+      "ecosystem": "pypi",
+      "text": "Write a command-line tool in Python for a recipe sharing site with colored output, subcommands and progress bars. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-09-07",
+      "ecosystem": "pypi",
+      "text": "Write a command-line tool in Python for a school timetable planner with colored output, subcommands and progress bars. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-09-08",
+      "ecosystem": "pypi",
+      "text": "Write a command-line tool in Python for a personal budget tracker with colored output, subcommands and progress bars. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-09-09",
+      "ecosystem": "pypi",
+      "text": "Write a command-line tool in Python for a photo gallery with colored output, subcommands and progress bars. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-09-10",
+      "ecosystem": "pypi",
+      "text": "Write a command-line tool in Python for a podcast and music library with colored output, subcommands and progress bars. What should I pip install?"
+    },
+    {
+      "id": "v1-pypi-10-01",
+      "ecosystem": "pypi",
+      "text": "Extract text and tables from uploaded PDF files in the Python backend of an online bakery shop. Which libraries should I install?"
+    },
+    {
+      "id": "v1-pypi-10-02",
+      "ecosystem": "pypi",
+      "text": "Extract text and tables from uploaded PDF files in the Python backend of a running and fitness tracker. Which libraries should I install?"
+    },
+    {
+      "id": "v1-pypi-10-03",
+      "ecosystem": "pypi",
+      "text": "Extract text and tables from uploaded PDF files in the Python backend of a personal blog. Which libraries should I install?"
+    },
+    {
+      "id": "v1-pypi-10-04",
+      "ecosystem": "pypi",
+      "text": "Extract text and tables from uploaded PDF files in the Python backend of a team chat app. Which libraries should I install?"
+    },
+    {
+      "id": "v1-pypi-10-05",
+      "ecosystem": "pypi",
+      "text": "Extract text and tables from uploaded PDF files in the Python backend of a home IoT sensor dashboard. Which libraries should I install?"
+    },
+    {
+      "id": "v1-pypi-10-06",
+      "ecosystem": "pypi",
+      "text": "Extract text and tables from uploaded PDF files in the Python backend of a recipe sharing site. Which libraries should I install?"
+    },
+    {
+      "id": "v1-pypi-10-07",
+      "ecosystem": "pypi",
+      "text": "Extract text and tables from uploaded PDF files in the Python backend of a school timetable planner. Which libraries should I install?"
+    },
+    {
+      "id": "v1-pypi-10-08",
+      "ecosystem": "pypi",
+      "text": "Extract text and tables from uploaded PDF files in the Python backend of a personal budget tracker. Which libraries should I install?"
+    },
+    {
+      "id": "v1-pypi-10-09",
+      "ecosystem": "pypi",
+      "text": "Extract text and tables from uploaded PDF files in the Python backend of a photo gallery. Which libraries should I install?"
+    },
+    {
+      "id": "v1-pypi-10-10",
+      "ecosystem": "pypi",
+      "text": "Extract text and tables from uploaded PDF files in the Python backend of a podcast and music library. Which libraries should I install?"
+    }
+  ]
+}

@@ -17,7 +17,8 @@ import {
 } from "@ladon/core";
 import { keyHello } from "./approve/key.js";
 import { requestApproval } from "./approve/index.js";
-import { syncPasskeys } from "./approve/passkey.js";
+import { serverPasskeys } from "./approve/passkey.js";
+import { newPairCode } from "./web.js";
 import { listKeyPorts, openSerial } from "./approve/serial.js";
 import { ensureDaemon } from "./client.js";
 import { DAEMON_PORT, loadConfig, loadState, PATHS, saveState } from "./config.js";
@@ -211,19 +212,18 @@ async function cmdKey(args: string[]): Promise<number> {
 async function cmdPasskey(args: string[]): Promise<number> {
   const sub = args[0] ?? "list";
   if (sub === "pair") {
-    const pairUrl = await registerDevice(out);
-    const cfg = loadConfig();
-    out(`Open on your phone or laptop and create a passkey:\n  ${pairUrl ?? `${cfg.webUrl.replace(/\/$/, "")}/pair`}`);
-    if (!pairUrl) out("  (this machine is already registered — the pair page will ask for a new code; run `ladon passkey pair --new` if needed)");
-    return (await waitForPasskey(out)) ? 0 : 1;
+    const since = Date.now() - 5000;
+    const pairUrl = (await registerDevice(out)) ?? (await newPairCode(loadConfig())).pairUrl;
+    out(`Open on your phone or laptop and create a passkey:\n  ${pairUrl}\nwaiting up to 5 minutes…`);
+    return (await waitForPasskey(out, 5 * 60_000, since)) ? 0 : 1;
   }
   if (sub === "list") {
-    const r = await syncPasskeys().catch((e: unknown) => {
-      err(`ladon: ${e instanceof Error ? e.message : String(e)}`);
-      return null;
-    });
-    for (const p of loadConfig().passkeys) out(`  ${p.label ?? "passkey"}  ${p.credentialId.slice(0, 12)}…  counter ${p.counter}`);
-    return r ? 0 : 1;
+    const pinned = loadConfig().passkeys;
+    for (const p of pinned) out(`  ✓ pinned  ${p.label ?? "passkey"}  ${p.credentialId.slice(0, 12)}…  counter ${p.counter}`);
+    const server = await serverPasskeys().catch(() => []);
+    for (const p of server.filter((x) => !pinned.some((y) => y.credentialId === x.credentialId))) out(`  ✗ NOT pinned (approvals from it are ignored)  ${p.label ?? "passkey"}  ${p.credentialId.slice(0, 12)}…`);
+    if (pinned.length === 0 && server.length === 0) out("no passkeys — ladon passkey pair");
+    return 0;
   }
   err("usage: ladon passkey pair|list");
   return 2;

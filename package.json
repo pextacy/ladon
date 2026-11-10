@@ -18,6 +18,7 @@
     "demo:install-canary": "pnpm --filter demo install-canary",
     "eval": "pnpm --filter @ladon/core build && node scripts/eval.mjs",
     "demo:generate-canaries": "node demo/canaries/generate.mjs",
-    "ladon": "node packages/cli/dist/index.js"
+    "ladon": "node packages/cli/dist/index.js",
+    "e2e:passkey": "node scripts/e2e-passkey.mjs"
   }
 }

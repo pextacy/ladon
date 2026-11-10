@@ -1,5 +1,5 @@
 export type ProbeStatus = "ok" | "down" | "not_configured";
-export interface Probe { status: ProbeStatus; ms?: number; error?: string }
+export interface Probe { status: ProbeStatus; ms?: number; error?: string; store?: string }
 
 export async function probe(url: string, init: RequestInit = {}, timeoutMs = 3000): Promise<Probe> {
   const started = Date.now();
@@ -22,4 +22,15 @@ export async function probeDb(env: Record<string, string | undefined>): Promise<
 /** Core data sources must be reachable; DB may be not_configured during Phase 0. */
 export function overall(checks: Record<string, Probe>): "ok" | "degraded" {
   return Object.values(checks).some((c) => c.status === "down") ? "degraded" : "ok";
+}
+
+/** DB check through the store abstraction (Supabase ping). */
+export async function probeStore(store: { kind: string; ping(): Promise<void> }, timeoutMs = 3000): Promise<Probe> {
+  const started = Date.now();
+  try {
+    await Promise.race([store.ping(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), timeoutMs))]);
+    return { status: "ok", ms: Date.now() - started, store: store.kind };
+  } catch (e) {
+    return { status: "down", ms: Date.now() - started, store: store.kind, error: e instanceof Error ? e.message.slice(0, 120) : "error" };
+  }
 }

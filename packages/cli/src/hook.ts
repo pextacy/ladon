@@ -2,6 +2,7 @@ import { z } from "zod";
 import { parseInstallCommand } from "@ladon/core";
 import { gateCommand } from "./client.js";
 import { sessionStartContext } from "./scan.js";
+import { tamperMessage, tamperReasonBash, tamperReasonEdit } from "./tamper.js";
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
@@ -12,7 +13,7 @@ async function readStdin(): Promise<string> {
 const PreToolUse = z.object({
   hook_event_name: z.string().optional(),
   tool_name: z.string(),
-  tool_input: z.object({ command: z.string().optional() }).passthrough(),
+  tool_input: z.object({ command: z.string().optional(), file_path: z.string().optional(), notebook_path: z.string().optional() }).passthrough(),
   cwd: z.string().optional(),
   transcript_path: z.string().optional(),
 });
@@ -38,8 +39,21 @@ async function claudePreToolUseInner(): Promise<number> {
   } catch {
     return 0; // not our event shape — never break the agent on malformed input
   }
+  const cwd0 = input.cwd ?? process.cwd();
+  if (input.tool_name !== "Bash") {
+    const target = input.tool_input.file_path ?? input.tool_input.notebook_path;
+    const reason = target ? tamperReasonEdit(target, cwd0) : null;
+    if (reason) process.stdout.write(denyJson(tamperMessage(reason), `■ Ladon blocked the agent from editing protected config: ${target}`));
+    return 0;
+  }
   const command = input.tool_input.command;
-  if (input.tool_name !== "Bash" || !command || parseInstallCommand(command).length === 0) return 0;
+  if (!command) return 0;
+  const tamper = tamperReasonBash(command);
+  if (tamper) {
+    process.stdout.write(denyJson(tamperMessage(tamper), `■ Ladon blocked a command that ${tamper}`));
+    return 0;
+  }
+  if (parseInstallCommand(command).length === 0) return 0;
   const r = await gateCommand({
     command,
     cwd: input.cwd ?? process.cwd(),
@@ -85,6 +99,11 @@ export async function cursorBeforeShell(): Promise<number> {
     input = CursorShell.parse(JSON.parse(await readStdin()));
   } catch {
     process.stdout.write(JSON.stringify({ permission: "allow" }));
+    return 0;
+  }
+  const tamper = tamperReasonBash(input.command);
+  if (tamper) {
+    process.stdout.write(JSON.stringify({ permission: "deny", userMessage: `Ladon blocked a command that ${tamper}`, agentMessage: tamperMessage(tamper) }));
     return 0;
   }
   if (parseInstallCommand(input.command).length === 0) {

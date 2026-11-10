@@ -10,10 +10,16 @@
     "start": "next start",
     "pretypecheck": "pnpm --filter @ladon/core build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "atlas:probe": "tsx atlas/probe.ts",
+    "atlas:prompts": "tsx atlas/prompts/generate.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.7.0",
     "@ladon/core": "workspace:*",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.3",
+    "@supabase/supabase-js": "^2.119.0",
     "next": "15.5.29",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -25,6 +31,7 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "tailwindcss": "^4.1.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.0",
     "vitest": "^4.0.0"
   }

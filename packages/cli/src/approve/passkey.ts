@@ -89,20 +89,32 @@ export function passkeyApprover(): Approver {
   };
 }
 
-/** Refresh pinned passkeys from the server. New ones are added; existing pins are never replaced. */
-export async function syncPasskeys(): Promise<{ added: number; total: number }> {
+export interface ServerPasskey {
+  credentialId: string;
+  publicKey: string;
+  counter: number;
+  label?: string;
+  createdAt?: string;
+}
+
+/** Passkeys the server lists for this device. Listing never pins — pinning needs a human (see init.ts). */
+export async function serverPasskeys(): Promise<ServerPasskey[]> {
   const cfg = loadConfig();
   if (!cfg.device) throw new WebError("no device registered — run ladon init");
   const me = await deviceMe(cfg);
-  let added = 0;
-  for (const p of me.passkeys) {
-    if (!cfg.passkeys.some((x) => x.credentialId === p.credentialId)) {
-      const pin: Config["passkeys"][number] = { credentialId: p.credentialId, publicKey: p.publicKey, counter: p.counter };
-      if (p.label) pin.label = p.label;
-      cfg.passkeys.push(pin);
-      added++;
-    }
-  }
+  return me.passkeys.map((p) => {
+    const out: ServerPasskey = { credentialId: p.credentialId, publicKey: p.publicKey, counter: p.counter };
+    if (p.label) out.label = p.label;
+    if (p.createdAt) out.createdAt = p.createdAt;
+    return out;
+  });
+}
+
+export function pinPasskey(p: ServerPasskey) {
+  const cfg = loadConfig();
+  if (cfg.passkeys.some((x) => x.credentialId === p.credentialId)) return;
+  const pin: Config["passkeys"][number] = { credentialId: p.credentialId, publicKey: p.publicKey, counter: p.counter };
+  if (p.label) pin.label = p.label;
+  cfg.passkeys.push(pin);
   saveConfig(cfg);
-  return { added, total: cfg.passkeys.length };
 }

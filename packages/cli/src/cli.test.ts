@@ -11,6 +11,9 @@ import type { ApprovalOutcome, Approver } from "./approve/types.js";
 import { loadConfig, loadState, saveConfig, saveState } from "./config.js";
 import { gate, targetsFor, loadLockfiles } from "./gate.js";
 import { shq } from "./shim.js";
+import { tamperReasonBash, tamperReasonEdit } from "./tamper.js";
+import { LADON_HOME } from "./config.js";
+import { homedir } from "node:os";
 import { extractItems, isOwnHook } from "./watch.js";
 import { parseInstallCommand } from "@ladon/core";
 
@@ -222,5 +225,30 @@ describe("watch & shim helpers", () => {
     expect(shq("lodash@^4")).toBe("'lodash@^4'");
     expect(shq("react")).toBe("react");
     expect(shq("it's")).toBe(`'it'\\''s'`);
+  });
+});
+
+describe("tamper protection (agent channel)", () => {
+  it.each([
+    [`cat ${LADON_HOME}/config.json`],
+    ["echo '{}' > ~/.ladon/config.json"],
+    ["node packages/cli/dist/index.js passkey pair"],
+    ["ladon key pair"],
+    ["ladon shim uninstall"],
+    ["ladon init --offline"],
+    ["sed -i '' 's/hook//' ~/.claude/settings.json"],
+    ["LADON_WEB_URL=http://evil npm i x"],
+    ["LADON_HOME=/tmp/x ladon check y"],
+  ])("blocks: %s", (cmd) => {
+    expect(tamperReasonBash(cmd)).not.toBeNull();
+  });
+  it.each([["npm i react"], ["cat ~/.claude/settings.json"], ["ladon check react"], ["ladon status"], ["git commit -m 'ladon'"]])("allows: %s", (cmd) => {
+    expect(tamperReasonBash(cmd)).toBeNull();
+  });
+  it("edits", () => {
+    expect(tamperReasonEdit(`${LADON_HOME}/state.json`, "/")).not.toBeNull();
+    expect(tamperReasonEdit("~/.claude/settings.json", "/")).not.toBeNull();
+    expect(tamperReasonEdit(".claude/settings.local.json", `${homedir()}/proj`)).not.toBeNull();
+    expect(tamperReasonEdit("src/app.ts", "/repo")).toBeNull();
   });
 });

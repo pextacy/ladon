@@ -14,10 +14,13 @@ stores only its SHA-256).
 | GET | `/pair?code=XXXX` | page | Human registers a passkey for this device |
 | POST | `/api/passkeys/register/options` | `{ code }` | WebAuthn `PublicKeyCredentialCreationOptionsJSON` |
 | POST | `/api/passkeys/register/verify` | `{ code, response: RegistrationResponseJSON, label? }` | `{ ok: true, credentialId }` |
+| POST | `/api/devices/me/pair-code` | Bearer | `{ pairCode, pairUrl }` — add another passkey (CLI still requires human confirmation before pinning) |
 | GET | `/api/devices/me` | Bearer | `{ deviceId, label, passkeys: [{ credentialId, publicKey /* base64url COSE */, counter, label, createdAt }] }` |
 
-The daemon **pins** the passkeys it sees in `/api/devices/me` (TOFU) and verifies every approval
-assertion itself, so a compromised server cannot forge approvals.
+The daemon **pins** passkeys only during `ladon passkey pair`, and only after the human confirms: the
+first passkey by typing `yes` on `/dev/tty`, every later one (and any Key replacement) with an approval from
+an already-paired Key or passkey. It verifies every approval assertion itself, so neither a compromised
+server nor an agent holding the device token can add an approver or forge an approval.
 
 ## Approvals (passkey path)
 

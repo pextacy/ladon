@@ -58,9 +58,18 @@ approval; otherwise the agent gets the reasons and is told not to route around t
   command hash, a one-time nonce, an expiry and a strictly increasing counter (replay-proof).
 - Passkey approvals: the web app is only a mailbox. The daemon pins the passkey's public key at pairing and
   **verifies every WebAuthn assertion itself**; the decision (approve/reject) is part of the signed challenge.
+- **Adding an approver needs a human.** The first passkey or Key is confirmed by typing `yes` on `/dev/tty`
+  (an agent's shell has no terminal); every later one, and replacing a Key, must be approved by an
+  already-paired Key or passkey. Listing passkeys on the server never pins them, so a compromised server
+  can't inject one.
+- **Tamper protection on the agent channel:** the hook also covers `Edit`/`Write`, and refuses agent tool
+  calls that touch `~/.ladon`, run pairing / `init` / `shim uninstall`, edit AI-tool hook configs, or point
+  Ladon at another daemon or server.
 - Any internal error on an install command **denies** (fail closed). Unreachable data sources hold.
-- Threat model, honestly: this protects against a hijacked *agent*. A fully compromised OS user account can
-  tamper with the daemon itself; that is out of scope.
+- Threat model, honestly: this protects against a hijacked *agent* acting through its tools. Code that is
+  already running as your OS user (a determined agent obfuscating a shell command, or local malware) can
+  still edit files Ladon relies on; the Key's private key is not yet protected by flash encryption. Both are
+  documented follow-ups.
 
 ## Results
 

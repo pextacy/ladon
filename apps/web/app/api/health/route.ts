@@ -1,6 +1,8 @@
 import { LADON_VERSION } from "@ladon/core";
-import { overall, probe, probeDb } from "@/lib/health";
+import { overall, probe, probeStore } from "@/lib/health";
+import { getStore, supabaseConfigured } from "@/lib/store";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
@@ -12,7 +14,7 @@ export async function GET() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ package: { name: "left-pad", ecosystem: "npm" } }),
     }),
-    probeDb(process.env),
+    supabaseConfigured() ? probeStore(getStore()) : Promise.resolve({ status: "not_configured" as const, store: "memory" }),
   ]);
   const checks = { npm, pypi, osv, db };
   const status = overall(checks);

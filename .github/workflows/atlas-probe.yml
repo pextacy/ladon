@@ -1,0 +1,43 @@
+name: atlas-probe
+# Nightly Hallucination Atlas probe (docs/DOCS.md §8). Cost-capped via LADON_PROBE_MAX_PROMPTS.
+on:
+  schedule:
+    - cron: "17 6 * * *" # daily 06:17 UTC: probe models, then re-check unregistered names
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "all | probe | recheck"
+        required: false
+        default: all
+      max_prompts:
+        description: "total model calls this run"
+        required: false
+        default: "50"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ladon/core build
+      - name: Run probe
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          LADON_PROBE_MODELS: ${{ vars.LADON_PROBE_MODELS || 'claude-opus-5-5' }}
+          LADON_PROBE_MAX_PROMPTS: ${{ github.event.inputs.max_prompts || vars.LADON_PROBE_MAX_PROMPTS || '50' }}
+          PROBE_MODE: ${{ github.event.inputs.mode || 'all' }}
+        run: pnpm --filter web atlas:probe "$PROBE_MODE"
