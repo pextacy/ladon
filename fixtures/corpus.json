@@ -1,0 +1,27 @@
+{
+  "note": "Evaluation corpus (PRD §4). benign = real popular/mid-popular packages from public registries; malicious = harmless canaries on the local Verdaccio (demo/canaries) that imitate real attack shapes; hallucinated = names that do not exist (synthetic, hallucination-shaped — not claimed to be observed model outputs) plus Atlas seed names.",
+  "benign": [
+    ["npm", "react"], ["npm", "express"], ["npm", "lodash"], ["npm", "axios"], ["npm", "zod"], ["npm", "typescript"],
+    ["npm", "vite"], ["npm", "next"], ["npm", "esbuild"], ["npm", "sharp"], ["npm", "prisma"], ["npm", "eslint"],
+    ["npm", "prettier"], ["npm", "chalk"], ["npm", "commander"], ["npm", "dotenv"], ["npm", "vitest"], ["npm", "tailwindcss"],
+    ["npm", "@types/node"], ["npm", "nanoid"], ["npm", "date-fns"], ["npm", "@anthropic-ai/sdk"], ["npm", "left-pad"], ["npm", "ms"],
+    ["npm", "husky"], ["npm", "puppeteer"], ["npm", "bcrypt"], ["npm", "core-js"],
+    ["pypi", "requests"], ["pypi", "numpy"], ["pypi", "pandas"], ["pypi", "flask"], ["pypi", "django"], ["pypi", "fastapi"],
+    ["pypi", "pydantic"], ["pypi", "pytest"], ["pypi", "boto3"], ["pypi", "black"], ["pypi", "httpx"], ["pypi", "rich"]
+  ],
+  "malicious": [
+    ["npm", "color-fn-utils"], ["npm", "ladon-canary-worm"], ["npm", "ladon-canary-obfuscated"], ["npm", "ladon-canary-curl"],
+    ["npm", "ladon-canary-child"], ["npm", "ladon-canary-tokens"], ["npm", "ladon-canary-dns"], ["npm", "ladon-canary-ssh"],
+    ["npm", "ladon-canary-deep"], ["npm", "ladon-canary-sh"], ["npm", "ladon-canary-gyp"], ["npm", "ladon-canary-mcp"],
+    ["npm", "rnongoose"], ["npm", "axois"], ["npm", "chalkk"], ["npm", "lodahs"]
+  ],
+  "hallucinated": [
+    ["npm", "react-native-sticky-navbar-pro"], ["npm", "express-jwt-session-guard"], ["npm", "next-tailwind-auto-dark"],
+    ["npm", "vite-plugin-env-secure-loader"], ["npm", "prisma-zod-auto-generator"], ["npm", "tailwind-shadcn-theme-builder"],
+    ["npm", "react-query-axios-hooks"], ["npm", "eslint-config-next-strict-ai"], ["npm", "jest-mock-fetch-auto"],
+    ["npm", "supabase-auth-react-helpers"], ["npm", "react-codeshift"],
+    ["pypi", "fastapi-auth-jwt-helper"], ["pypi", "pandas-excel-autoformat"], ["pypi", "numpy-fast-stats-utils"],
+    ["pypi", "flask-cors-auto"], ["pypi", "django-rest-quickauth"], ["pypi", "requests-retry-session-plus"],
+    ["pypi", "langchain-pdf-easyloader"], ["pypi", "huggingface-cli"]
+  ]
+}

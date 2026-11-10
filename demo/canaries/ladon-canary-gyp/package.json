@@ -1,0 +1,15 @@
+{
+  "name": "ladon-canary-gyp",
+  "version": "1.0.0",
+  "description": "LADON DEMO CANARY — harmless. June 2026 binding.gyp wave: command expansion runs at build. Local Verdaccio only.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {},
+  "gypfile": true,
+  "publishConfig": {
+    "registry": "http://localhost:4873/"
+  },
+  "ladonCanary": {
+    "attack": "June 2026 binding.gyp wave: command expansion runs at build"
+  }
+}

@@ -15,6 +15,19 @@ packages:
   'ladon-canary-*':
     access: $all
     publish: $authenticated
+  # local-only look-alike names for the typosquat corpus
+  'rnongoose':
+    access: $all
+    publish: $authenticated
+  'axois':
+    access: $all
+    publish: $authenticated
+  'chalkk':
+    access: $all
+    publish: $authenticated
+  'lodahs':
+    access: $all
+    publish: $authenticated
   # Everything else is a read-only proxy of npmjs so normal installs still work.
   '@*/*':
     access: $all

@@ -1,0 +1,16 @@
+{
+  "name": "ladon-canary-worm",
+  "version": "1.0.0",
+  "description": "LADON DEMO CANARY — harmless. Aug 2026 worm pattern: plants a hook in Claude Code settings (here: only names the path). Local Verdaccio only.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node setup.js"
+  },
+  "publishConfig": {
+    "registry": "http://localhost:4873/"
+  },
+  "ladonCanary": {
+    "attack": "Aug 2026 worm pattern: plants a hook in Claude Code settings (here: only names the path)"
+  }
+}

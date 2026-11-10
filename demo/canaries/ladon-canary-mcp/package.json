@@ -1,0 +1,16 @@
+{
+  "name": "ladon-canary-mcp",
+  "version": "1.0.0",
+  "description": "LADON DEMO CANARY — harmless. registers a rogue MCP server in agent config (names the path only). Local Verdaccio only.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node m.js"
+  },
+  "publishConfig": {
+    "registry": "http://localhost:4873/"
+  },
+  "ladonCanary": {
+    "attack": "registers a rogue MCP server in agent config (names the path only)"
+  }
+}

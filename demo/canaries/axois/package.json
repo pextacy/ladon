@@ -1,0 +1,16 @@
+{
+  "name": "axois",
+  "version": "1.0.0",
+  "description": "LADON DEMO CANARY — harmless. typosquat of axios. Local Verdaccio only.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node p.js"
+  },
+  "publishConfig": {
+    "registry": "http://localhost:4873/"
+  },
+  "ladonCanary": {
+    "attack": "typosquat of axios"
+  }
+}

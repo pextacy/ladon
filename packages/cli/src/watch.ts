@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { LADON_HOME, PATHS } from "./config.js";
 
 /**
@@ -99,7 +100,18 @@ function loadSnap(): Snapshot {
   }
 }
 
-const isLadon = (item: string) => /\bladon\b|packages\/cli\/dist\/index\.js/.test(item);
+/**
+ * Only Ladon's own hooks are exempt — matched exactly (this install's CLI path + a hook subcommand),
+ * so a malicious hook can't hide by mentioning "ladon".
+ */
+const CLI_PATH = fileURLToPath(new URL("./index.js", import.meta.url));
+export function isOwnHook(item: string, cliPath = CLI_PATH): boolean {
+  const m = /^hook\|[A-Za-z]+(?:\([^)]*\))?: (.*)$/.exec(item);
+  if (!m) return false;
+  const cmd = m[1]!.trim();
+  const escaped = cliPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^'?[^\\s']*node'? '?${escaped}'? hook (claude-pre-tool-use|claude-session-start|cursor)$`).test(cmd);
+}
 
 /** Compare watched files with the baseline. First sight of a global file sets the baseline silently; project files with hooks/MCP alert on first sight (cloned-repo attack). */
 export function checkWatched(opts: { cwd?: string; update?: boolean } = {}): WatchAlert[] {
@@ -114,7 +126,7 @@ export function checkWatched(opts: { cwd?: string; update?: boolean } = {}): Wat
     } catch {
       continue;
     }
-    const items = extractItems(p, text).filter((i) => !isLadon(i.item));
+    const items = extractItems(p, text).filter((i) => !isOwnHook(`${i.kind}|${i.item}`));
     const keys = items.map((i) => `${i.kind}|${i.item}`);
     const before = snap[p];
     if (before === undefined && global) {

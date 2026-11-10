@@ -1,0 +1,16 @@
+{
+  "name": "ladon-canary-ssh",
+  "version": "1.0.0",
+  "description": "LADON DEMO CANARY — harmless. SSH key theft shape. Local Verdaccio only.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node k.js"
+  },
+  "publishConfig": {
+    "registry": "http://localhost:4873/"
+  },
+  "ladonCanary": {
+    "attack": "SSH key theft shape"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "ladon-canary-dns",
+  "version": "1.0.0",
+  "description": "LADON DEMO CANARY — harmless. DNS exfiltration shape. Local Verdaccio only.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node d.js"
+  },
+  "publishConfig": {
+    "registry": "http://localhost:4873/"
+  },
+  "ladonCanary": {
+    "attack": "DNS exfiltration shape"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "ladon-canary-sh",
+  "version": "1.0.0",
+  "description": "LADON DEMO CANARY — harmless. shell script installer with wget. Local Verdaccio only.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "sh install.sh"
+  },
+  "publishConfig": {
+    "registry": "http://localhost:4873/"
+  },
+  "ladonCanary": {
+    "attack": "shell script installer with wget"
+  }
+}

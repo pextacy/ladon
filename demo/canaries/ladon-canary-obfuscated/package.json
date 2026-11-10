@@ -1,0 +1,16 @@
+{
+  "name": "ladon-canary-obfuscated",
+  "version": "1.0.0",
+  "description": "LADON DEMO CANARY — harmless. base64 + eval loader. Local Verdaccio only.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node loader.js"
+  },
+  "publishConfig": {
+    "registry": "http://localhost:4873/"
+  },
+  "ladonCanary": {
+    "attack": "base64 + eval loader"
+  }
+}

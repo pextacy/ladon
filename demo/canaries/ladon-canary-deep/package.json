@@ -1,0 +1,16 @@
+{
+  "name": "ladon-canary-deep",
+  "version": "1.0.0",
+  "description": "LADON DEMO CANARY — harmless. payload hidden two requires deep. Local Verdaccio only.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node index.js"
+  },
+  "publishConfig": {
+    "registry": "http://localhost:4873/"
+  },
+  "ladonCanary": {
+    "attack": "payload hidden two requires deep"
+  }
+}

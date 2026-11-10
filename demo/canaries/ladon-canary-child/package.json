@@ -1,0 +1,16 @@
+{
+  "name": "ladon-canary-child",
+  "version": "1.0.0",
+  "description": "LADON DEMO CANARY — harmless. child_process with a computed command string. Local Verdaccio only.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "install": "node run.js"
+  },
+  "publishConfig": {
+    "registry": "http://localhost:4873/"
+  },
+  "ladonCanary": {
+    "attack": "child_process with a computed command string"
+  }
+}

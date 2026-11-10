@@ -36,6 +36,22 @@ Hard overrides (always hold, score = 100): OSV `MAL-` advisory match; package do
 Score = min(100, Σ weights). Every hit carries a human-readable `detail` string.
 Weights are hackathon defaults; tune on the fixture corpus and document changes here.
 
+**Additional signals (implemented):**
+
+| ID | Signal | Weight | Notes |
+|---|---|---|---|
+| E01 `source_unavailable` | a critical source (registry, OSV, install-script analysis when scripts exist) failed | +60 | fail closed; `failMode: "open"` in `~/.ladon/config.json` disables |
+| G01 `non_registry_source` | git URL / tarball URL / local path spec | +35 | can't be verified (CLI gate) |
+| G02 `custom_registry` | `--registry` to a non-default, non-loopback registry | +30 | CLI gate |
+| G03 `exec` | `npx` / `uvx` / `dlx` — runs immediately | 0 | shown as a reason only |
+| AI1 `intent_drift_*` | LLM intent judge (§5) | 0 | strong drift escalates allow→warn, warn→hold; never lowers |
+
+**Established-package discount (tuned on the corpus):** when a package has ≥ 100k weekly downloads, was
+first published ≥ 180 days ago and the requested version is ≥ 7 days old, R08–R11 and R13 are shown but
+not counted. Popular packages such as esbuild, sharp and prisma legitimately download binaries at install;
+for them the real risk is a hijacked *new* version, which R07, R14, R15 and OSV still catch. Without this
+discount esbuild scored 95 (hold). Results: `docs/EVAL.md`.
+
 ## 3. Name similarity
 
 - **Top list:** top 5,000 npm + top 5,000 PyPI by downloads (snapshot in `/fixtures/top-*.json`).
@@ -102,9 +118,11 @@ registered → flag `registered_at` → R03 bonus kicks in. Cost-capped; prompts
 ```bash
 pnpm install
 cp .env.example .env    # SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY, LADON_AI=on
-pnpm test
+pnpm build && pnpm test
+pnpm eval               # confusion matrix → docs/EVAL.md (needs the demo registry below)
 pnpm --filter web dev                       # http://localhost:3000
-pnpm --filter cli build && npx ladon init   # installs hook + shims
+pnpm --filter @ladon/cli build && node packages/cli/dist/index.js init --shell --passkey
+# daemon/intent judge read optional ~/.ladon/env (ANTHROPIC_API_KEY=…, LADON_AI=on)
 # Demo registry (local only; no Docker needed)
 pnpm demo:registry            # Verdaccio on 127.0.0.1:4873, config in demo/verdaccio/config.yaml
 pnpm demo:publish-canaries && pnpm demo:install-canary

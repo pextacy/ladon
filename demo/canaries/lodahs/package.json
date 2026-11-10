@@ -1,0 +1,16 @@
+{
+  "name": "lodahs",
+  "version": "1.0.0",
+  "description": "LADON DEMO CANARY — harmless. typosquat of lodash. Local Verdaccio only.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node p.js"
+  },
+  "publishConfig": {
+    "registry": "http://localhost:4873/"
+  },
+  "ladonCanary": {
+    "attack": "typosquat of lodash"
+  }
+}
