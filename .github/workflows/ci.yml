@@ -18,6 +18,9 @@ jobs:
     # Re-runs the confusion matrix against real registries + the local canary registry.
     runs-on: ubuntu-latest
     needs: test
+    env:
+      # Node on Ubuntu resolves localhost to ::1 first; Verdaccio listens on 127.0.0.1
+      LADON_DEMO_REGISTRY: http://127.0.0.1:4873/
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -27,8 +30,9 @@ jobs:
       - run: pnpm --filter @ladon/core build
       - name: start local Verdaccio
         run: |
-          (pnpm demo:registry > verdaccio.log 2>&1 &)
-          for i in $(seq 1 60); do curl -sf http://localhost:4873/-/ping && break; sleep 1; done
+          nohup pnpm demo:registry > verdaccio.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:4873/-/ping && exit 0; sleep 1; done
+          cat verdaccio.log; exit 1
       - run: pnpm demo:publish-canaries
       - run: node scripts/eval.mjs | tee eval.txt
       - name: fail if targets missed
