@@ -3,12 +3,22 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "bin": { "ladon": "./dist/index.js" },
+  "bin": {
+    "ladon": "./dist/index.js"
+  },
   "scripts": {
+    "prebuild": "pnpm --filter @ladon/core build",
     "build": "tsc -p tsconfig.json",
+    "pretypecheck": "pnpm --filter @ladon/core build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": { "@ladon/core": "workspace:*" },
-  "devDependencies": { "typescript": "^5.9.0", "vitest": "^4.0.0", "@types/node": "^24.0.0" }
+  "dependencies": {
+    "@ladon/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0",
+    "@types/node": "^24.0.0"
+  }
 }
