@@ -1,0 +1,17 @@
+part,qty,example source,approx USD (each),notes
+ESP32-S3-DevKitC-1-N8 (or N8R2/N16R8) dev board,1,Espressif via DigiKey/Mouser (ESP32-S3-DEVKITC-1-N8),15.00,Native USB = host link. Any S3 DevKitC-1 works.
+2.0in IPS TFT 240x320 ST7789 SPI module,1,Waveshare 2inch LCD Module (SKU 19113) or generic AliExpress ST7789 2.0in,8.00,Generic ~$5; Waveshare ~$14. 240x240 1.54in also supported (pins.h).
+12x12mm tactile switch (Omron B3F-4055 or clone),2,DigiKey SW1400-ND / Adafruit 1119 (10 pack),0.50,APPROVE + CANCEL
+Round button cap for 12x12 switch - short,1,Adafruit 1009 (assorted caps) / B32-1000,0.30,APPROVE: sits recessed in the finger well
+Round button cap for 12x12 switch - tall,1,Adafruit 1009 (assorted caps) / B32-1010,0.30,CANCEL: flush with the top plate
+WS2812B / SK6812 5mm through-hole addressable LED,1,Adafruit 1938 (5 pack),1.00,Fits the 5mm LED hole. Or use the DevKitC on-board RGB LED.
+330 ohm resistor,1,any,0.05,Series resistor on LED data line
+100nF ceramic capacitor,1,any,0.05,Across LED VDD/GND
+Perfboard 5x7cm,1,any,1.00,Carries the two switches + LED under the recess layer (until the KiCad carrier PCB exists)
+Dupont jumper wires F-F 10cm,15,any (40 pack ~$3),0.08,
+USB-C cable (data capable),1,any,5.00,DevKitC-1 v1.1 boards are USB-C; older v1.0 are micro-USB
+3mm acrylic or plywood sheet (5 cut parts + 2 extra frames = 7 parts at 96x64mm),7,SendCutSend / Ponoko / local makerspace laser,3.00,DXFs in enclosure/dxf/
+M3x25 socket head screw,4,any,0.15,Stack is 21mm
+M3 nut,4,any,0.05,
+Rubber feet 8mm,4,any,0.10,
+Double-sided foam tape,1,any,1.00,Holds the DevKitC to the bottom plate
