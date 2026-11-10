@@ -7,11 +7,13 @@ Rule: after Phase 2 there is always a working end-to-end demo. Each phase ends d
 ---
 
 ## Phase 0 — Kickoff (Nov 8 evening PT, ~3 h)
-- [ ] Public repo, pnpm monorepo skeleton, commit these 5 docs.
+- [x] Public repo, pnpm monorepo skeleton, commit these 5 docs. → github.com/pextacy/ladon
 - [ ] **Buy hardware today:** ESP32-S3 dev board ×2, ST7789 2" display, buttons, LED, USB-C cable.
-- [ ] Deploy empty Next.js to DeployXA (Vercel fallback); Supabase project; `/api/health`.
+- [x] Deploy Next.js + `/api/health` → Vercel: https://ladon-one.vercel.app (auto-deploy from `main`).
+- [ ] DeployXA deploy (sponsor) — needs account.
+- [ ] Supabase project + env vars (`db` check reports `not_configured` until then).
 - [ ] Devpost draft created, all tracks ticked.
-- [ ] Verdaccio running locally; publish first harmless canary package.
+- [x] Verdaccio running locally; publish first harmless canary package (`color-fn-utils`, `pnpm demo:*`).
 
 **Exit:** live URL 200; canary installs from local registry.
 
