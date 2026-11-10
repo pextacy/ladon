@@ -1,0 +1,21 @@
+{
+  "note": "Curated seed for the Hallucination Atlas, used when the live Atlas is unreachable. Only names documented in public research. Verify each source link before citing in the write-up.",
+  "entries": [
+    {
+      "ecosystem": "pypi",
+      "name": "huggingface-cli",
+      "models": [],
+      "seenCount": 1,
+      "registeredAt": "2023-12-01T00:00:00Z",
+      "source": "Lasso Security (B. Lanyado), 2024: hallucinated name registered as an empty proof-of-concept package"
+    },
+    {
+      "ecosystem": "npm",
+      "name": "react-codeshift",
+      "models": [],
+      "seenCount": 1,
+      "registeredAt": null,
+      "source": "Aikido Security, Jan 2026: conflation of jscodeshift + react-codemod spread via agent skills (verify)"
+    }
+  ]
+}
