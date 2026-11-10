@@ -1,4 +1,4 @@
-import { createRequire } from "node:module";
+import atlasSeed from "../data/atlas-seed.json" with { type: "json" };
 import { z } from "zod";
 import type { AtlasEvidence } from "../evidence.js";
 import { normalizePypiName } from "../parse/command.js";
@@ -33,8 +33,7 @@ function toEvidence(e: AtlasEntry): AtlasEvidence {
 let seedIndex: Map<string, AtlasEntry> | undefined;
 export function seedAtlas(): Map<string, AtlasEntry> {
   if (!seedIndex) {
-    const require = createRequire(import.meta.url);
-    const raw = require("../../data/atlas-seed.json") as { entries: unknown[] };
+    const raw = atlasSeed as { entries: unknown[] };
     seedIndex = new Map(raw.entries.map((x) => AtlasEntry.parse(x)).map((e) => [key(e.ecosystem, e.name), e]));
   }
   return seedIndex;

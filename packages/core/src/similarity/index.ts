@@ -1,4 +1,5 @@
-import { createRequire } from "node:module";
+import topNpm from "../data/top-npm.json" with { type: "json" };
+import topPypi from "../data/top-pypi.json" with { type: "json" };
 import { normalizePypiName } from "../parse/command.js";
 import type { Ecosystem } from "../schemas.js";
 
@@ -82,8 +83,8 @@ const cache = new Map<Ecosystem, TopList>();
 export function defaultTopList(eco: Ecosystem): TopList {
   let t = cache.get(eco);
   if (!t) {
-    const require = createRequire(import.meta.url);
-    const data = require(`../../data/top-${eco}.json`) as { names: string[] };
+    // static imports so bundlers (Next.js / Vercel) ship the data files
+    const data = (eco === "npm" ? topNpm : topPypi) as { names: string[] };
     t = buildTopList(eco, data.names);
     cache.set(eco, t);
   }

@@ -11,7 +11,7 @@ const pypi = JSON.parse(readFileSync(pypiPath, "utf8"));
 const N = 5000;
 const out = (eco, source, names) =>
   writeFileSync(
-    new URL(`../packages/core/data/top-${eco}.json`, import.meta.url),
+    new URL(`../packages/core/src/data/top-${eco}.json`, import.meta.url),
     JSON.stringify({ source, generated: new Date().toISOString().slice(0, 10), names: names.slice(0, N) }) + "\n",
   );
 out("npm", "npm-high-impact@1.13.0 (top-download)", npmTopDownloads);
