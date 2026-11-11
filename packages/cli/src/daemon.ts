@@ -12,6 +12,8 @@ const GateBody = z.object({
   command: z.string().min(1).max(20_000),
   cwd: z.string().min(1).max(4096),
   transcriptPath: z.string().max(4096).optional(),
+  userRequest: z.string().max(4000).optional(),
+  recentAgentSteps: z.array(z.string().max(400)).max(20).optional(),
   agent: z.string().max(40).optional(),
 });
 
@@ -24,6 +26,7 @@ export function slimResult(r: GateResult) {
     agentText: r.agentText,
     durationMs: r.durationMs,
     approval: r.approval,
+    ...(r.notice ? { notice: r.notice } : {}),
     reports: r.reports.map((x) => ({ target: x.target, version: x.version, verdict: x.verdict, score: x.score, hits: x.hits, fastPath: x.fastPath })),
   };
 }
@@ -89,6 +92,8 @@ export async function runDaemon(port = DAEMON_PORT) {
         command: body.command,
         cwd: body.cwd,
         ...(body.transcriptPath ? { transcriptPath: body.transcriptPath } : {}),
+        ...(body.userRequest ? { userRequest: body.userRequest } : {}),
+        ...(body.recentAgentSteps ? { recentAgentSteps: body.recentAgentSteps } : {}),
         ...(body.agent ? { agent: body.agent } : {}),
         onStatus: (m: string) => log(m.replace(/\x1b\[[0-9;]*m/g, "")),
       };

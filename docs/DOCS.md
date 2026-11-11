@@ -82,6 +82,10 @@ Output (Zod):
 ```
 Rules: drift can raise `warn → hold` (strong) but can **never lower** a score. Temperature 0. One retry on
 schema failure, then ignore. Claude Code hook input provides `transcript_path`; we read the last user turn.
+Codex hook input also provides `transcript_path` (rollout JSONL; `parseCodexTranscript`, skipping injected
+`AGENTS.md` / `<environment_context>` turns). Cursor has no transcript: its `beforeSubmitPrompt` hook stores the
+last 5 prompts + shell steps per `conversation_id` in `~/.ladon/sessions/<id>.json` (0600, pruned after 24 h,
+never uploaded) and `beforeShellExecution` passes them to the gate as `userRequest` / `recentAgentSteps`.
 
 ## 6. Approval protocol
 
@@ -106,6 +110,9 @@ Scans instruction files in cwd → repo root → home: `AGENTS.md`, `CLAUDE.md`,
 `.cursor/rules/*`, `.github/copilot-instructions.md`, `.clinerules`. Flags:
 install/curl/pipe-to-shell imperatives, zero-width / bidi Unicode, base64 > 80 chars, HTML comments with
 instructions, files untracked by git or modified < 24 h with no commit. Output shown at session start.
+Agents without a session-start hook (Cursor, Codex, anything via the PATH shims): the first gated install in a
+directory per 24 h runs the same scan and prepends medium/high findings to the human display and the agent text
+(state: `~/.ladon/scanned.json`).
 
 ## 8. Atlas probe job
 

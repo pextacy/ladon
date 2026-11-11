@@ -5,7 +5,9 @@ import { parseInstallCommand } from "@ladon/core";
 import { CLI_ENTRY, gateCommand } from "./client.js";
 import { PATHS } from "./config.js";
 
-export const SHIMMED = ["npm", "npx", "pnpm", "pnpx", "yarn", "bun", "bunx", "pip", "pip3", "uv", "uvx", "poetry", "pipx"] as const;
+export const SHIMMED = ["npm", "npx", "pnpm", "pnpx", "yarn", "bun", "bunx", "pip", "pip3", "uv", "uvx", "poetry", "pipx", "pipenv"] as const;
+/** Pure-sh shims: only `python -m pip|uv …` starts Ladon; everything else execs the real python directly. */
+export const PY_SHIMS = ["python", "python3"] as const;
 const MARK = "# ladon shim";
 
 /** Shell-quote for reconstructing the command line the parser sees. */
@@ -67,17 +69,75 @@ export async function shimExec(tool: string, args: string[]): Promise<number> {
   return res.status ?? (res.signal ? 128 : 1);
 }
 
+/**
+ * python/python3 shim. Scans leading interpreter options for `-m pip…` / `-m uv` (or `-mpip`); only then
+ * hands off to `launcher` (Ladon's shim-exec, which parses and gates). Otherwise it finds the real
+ * interpreter on PATH — skipping the shim directory and anything that is this same file — and execs it,
+ * so ordinary `python script.py` never starts node.
+ */
+export function pythonShimScript(tool: string, launcher: string, shimDir = resolve(PATHS.shims)): string {
+  const self = join(shimDir, tool);
+  return `#!/bin/sh
+${MARK} (python fast path)
+gate=0; m=0; skip=0
+for a in "$@"; do
+  if [ "$skip" = 1 ]; then skip=0; continue; fi
+  if [ "$m" = 1 ]; then
+    case "$a" in pip|pip[0-9]*|uv) gate=1 ;; esac
+    break
+  fi
+  case "$a" in
+    -m) m=1 ;;
+    -mpip|-mpip[0-9]*|-muv) gate=1; break ;;
+    -W|-X|--check-hash-based-pycs) skip=1 ;;
+    -c|-c*|-m*|-|--) break ;;
+    -*) ;;
+    *) break ;;
+  esac
+done
+if [ "$gate" = 1 ]; then exec ${launcher} "$@"; fi
+self=${shq(self)}
+shimdir=${shq(shimDir)}
+set -f
+IFS=:
+for d in $PATH; do
+  [ -z "$d" ] && continue
+  [ "$d" = "$shimdir" ] || [ "$d" = "$shimdir/" ] && continue
+  if [ -f "$d/${tool}" ] && [ -x "$d/${tool}" ] && ! [ "$d/${tool}" -ef "$self" ]; then exec "$d/${tool}" "$@"; fi
+done
+echo "ladon: real ${tool} not found on PATH" >&2
+exit 127
+`;
+}
+
 export function installShims(): string[] {
   mkdirSync(PATHS.shims, { recursive: true });
   const written: string[] = [];
+  const launcher = (tool: string) => `${shq(process.execPath)} ${shq(CLI_ENTRY)} shim-exec ${tool}`;
   for (const tool of SHIMMED) {
     const p = join(PATHS.shims, tool);
-    const body = `#!/bin/sh\n${MARK}\nexec ${shq(process.execPath)} ${shq(CLI_ENTRY)} shim-exec ${tool} "$@"\n`;
-    writeFileSync(p, body);
+    writeFileSync(p, `#!/bin/sh\n${MARK}\nexec ${launcher(tool)} "$@"\n`);
+    chmodSync(p, 0o755);
+    written.push(p);
+  }
+  for (const tool of PY_SHIMS) {
+    const p = join(PATHS.shims, tool);
+    writeFileSync(p, pythonShimScript(tool, launcher(tool)));
     chmodSync(p, 0o755);
     written.push(p);
   }
   return written;
+}
+
+/** Which shims (package managers + python) are present in the shim directory. */
+export function installedShims(): string[] {
+  return [...SHIMMED, ...PY_SHIMS].filter((t) => {
+    try {
+      return readFileSync(join(PATHS.shims, t), "utf8").includes(MARK);
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function uninstallShims(): number {
@@ -85,7 +145,13 @@ export function uninstallShims(): number {
   let n = 0;
   for (const f of readdirSync(PATHS.shims)) {
     const p = join(PATHS.shims, f);
-    if (readFileSync(p, "utf8").includes(MARK)) {
+    let body = "";
+    try {
+      body = statSync(p).isFile() ? readFileSync(p, "utf8") : "";
+    } catch {
+      /* vanished */
+    }
+    if (body.includes(MARK)) {
       rmSync(p);
       n++;
     }

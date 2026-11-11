@@ -12,7 +12,7 @@ import { LADON_HOME } from "./config.js";
 const home = homedir();
 const ladonHome = resolve(LADON_HOME);
 
-const PROTECTED_FILES = [/\/\.claude\/settings(\.local)?\.json$/, /\/\.cursor\/hooks\.json$/, /\/\.claude\.json$/];
+const PROTECTED_FILES = [/\/\.claude\/settings(\.local)?\.json$/, /\/\.cursor\/hooks\.json$/, /\/\.claude\.json$/, /\/\.codex\/(hooks\.json|config\.toml)$/];
 
 function expand(p: string, cwd: string): string {
   return resolve(cwd, p.replace(/^~(?=\/|$)/, home));
@@ -32,7 +32,7 @@ export function tamperReasonBash(command: string): string | null {
   const ladonRef = command.includes(ladonHome) || /~\/\.ladon\b|\$HOME\/\.ladon\b|\$\{HOME\}\/\.ladon\b|\/\.ladon\//.test(command) || /\bLADON_HOME=/.test(command);
   if (ladonRef) return "touches Ladon's configuration (~/.ladon)";
   if (SENSITIVE_SUB.test(command)) return "changes who can approve installs (pairing / init / removing shims)";
-  if (/\.claude\/settings(\.local)?\.json|\.cursor\/hooks\.json|\.claude\.json/.test(command) && WRITEISH.test(command)) return "modifies AI-tool hook configuration";
+  if (/\.claude\/settings(\.local)?\.json|\.cursor\/hooks\.json|\.claude\.json|\.codex\/(hooks\.json|config\.toml)/.test(command) && WRITEISH.test(command)) return "modifies AI-tool hook configuration";
   if (/\bLADON_(?:DAEMON_PORT|KEY_PORT|WEB_URL)=/.test(command)) return "redirects Ladon to a different daemon / key / server";
   return null;
 }

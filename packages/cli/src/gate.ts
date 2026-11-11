@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   agentMessage,
   applyIntent,
@@ -14,10 +15,12 @@ import {
   newNonce,
   newRequestId,
   nextStep,
-  parseClaudeTranscript,
+  parseAgentTranscript,
   parseInstallCommand,
   parseLockfile,
   parsePackageJsonDeps,
+  parsePipfileDeps,
+  parsePyprojectDeps,
   parseRequirementsTxt,
   pkgLabel,
   type CheckDeps,
@@ -29,12 +32,19 @@ import {
 import { requestApproval, type ApprovalOutcome, type Approver, type PendingApproval } from "./approve/index.js";
 import { loadConfig, loadState, PATHS, type Config } from "./config.js";
 import { isDefaultNpm, npmRegistryFor, pypiIndexFor } from "./registry.js";
+import { firstVisitScan, type DirNotice } from "./firstscan.js";
 import { atlasReport, postDecision, type DecisionLog } from "./web.js";
 
 export interface GateInput {
   command: string;
   cwd: string;
   transcriptPath?: string;
+  /**
+   * What the human asked, when the agent has no transcript file (Cursor: stored by the
+   * beforeSubmitPrompt hook). Takes precedence over transcriptPath.
+   */
+  userRequest?: string;
+  recentAgentSteps?: string[];
   /** who ran it: claude-code, cursor, human, ... */
   agent?: string;
   /** called with progress lines for the human (stderr / Key / notifications) */
@@ -51,6 +61,8 @@ export interface GateResult {
   /** text for the coding agent (hook deny reason / shim stderr) */
   agentText: string;
   approval?: ApprovalOutcome;
+  /** one-time instruction-file findings for this directory (first gate run here in 24 h) */
+  notice?: string;
   durationMs: number;
 }
 
@@ -63,6 +75,8 @@ export interface GateEnv {
   now?: () => Date;
   /** serialize approvals (the Key shows one request at a time) */
   approvalLock?: <T>(fn: () => Promise<T>) => Promise<T>;
+  /** first-time-in-directory instruction-file scan (defaults to firstVisitScan; tests override) */
+  dirScan?: (cwd: string, agent: string | undefined) => DirNotice | null;
 }
 
 // Targets a human approved recently: the hook and the PATH shim may both see the same install.
@@ -83,13 +97,36 @@ function findUp(start: string, names: readonly string[]): string[] {
   return found;
 }
 
-const LOCKS = ["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "uv.lock", "poetry.lock", "pdm.lock"] as const;
+const LOCKS = ["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "uv.lock", "poetry.lock", "pdm.lock", "Pipfile.lock"] as const;
+
+/** Pipfile.lock is JSON: { default: { name: { version: "==1.2.3" } }, develop: {...} }. */
+export function parsePipfileLock(text: string, idx: LockfileIndex): LockfileIndex {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return idx;
+  }
+  if (!json || typeof json !== "object") return idx;
+  for (const section of ["default", "develop"]) {
+    const deps = (json as Record<string, unknown>)[section];
+    if (!deps || typeof deps !== "object") continue;
+    for (const [name, info] of Object.entries(deps as Record<string, unknown>)) {
+      const v = info && typeof info === "object" ? (info as { version?: unknown }).version : undefined;
+      if (typeof v === "string") idx.add("pypi", name, v.replace(/^==/, ""));
+    }
+  }
+  idx.sources.push("Pipfile.lock");
+  return idx;
+}
 
 export function loadLockfiles(cwd: string): LockfileIndex {
   const idx = new LockfileIndex();
   for (const f of findUp(cwd, LOCKS)) {
     try {
-      if (statSync(f).size < 30 * 1024 * 1024) parseLockfile(f, readFileSync(f, "utf8"), idx);
+      if (statSync(f).size >= 30 * 1024 * 1024) continue;
+      if (basename(f) === "Pipfile.lock") parsePipfileLock(readFileSync(f, "utf8"), idx);
+      else parseLockfile(f, readFileSync(f, "utf8"), idx);
     } catch {
       /* unreadable lockfile → just no fast path */
     }
@@ -97,12 +134,42 @@ export function loadLockfiles(cwd: string): LockfileIndex {
   return idx;
 }
 
+/** Dependencies of a Python manifest file, by file name (pyproject.toml, Pipfile, else requirements.txt). */
+function pyManifest(file: string): { targets: InstallTarget[]; nonRegistry: string[]; includes: string[] } {
+  const text = readFileSync(file, "utf8");
+  const base = basename(file);
+  if (base === "pyproject.toml") return { ...parsePyprojectDeps(text), includes: [] };
+  if (base === "Pipfile") return { ...parsePipfileDeps(text), includes: [] };
+  return parseRequirementsTxt(text);
+}
+
+/** `pip install .` / `-e ./pkg`: the project is the user's code; check what its pyproject.toml pulls in. */
+function localProjectTargets(spec: string, cwd: string): { targets: InstallTarget[]; unverifiable: string[] } {
+  const dir = resolve(cwd, spec.replace(/\[[^\]]*\]$/, "").replace(/^~(?=\/|$)/, homedir()));
+  const pyproject = join(dir, "pyproject.toml");
+  if (existsSync(pyproject)) {
+    try {
+      const r = pyManifest(pyproject);
+      return { targets: r.targets, unverifiable: r.nonRegistry };
+    } catch {
+      return { targets: [], unverifiable: [`local project ${spec}: pyproject.toml could not be read`] };
+    }
+  }
+  if (existsSync(join(dir, "setup.py")) || existsSync(join(dir, "setup.cfg"))) return { targets: [], unverifiable: [`local project ${spec} (setup.py dependencies cannot be checked)`] };
+  return { targets: [], unverifiable: [spec] };
+}
+
 /** Turn one parsed install into concrete registry targets (manifest installs read the manifest). */
 export function targetsFor(p: ParsedInstall, cwd: string, lock: LockfileIndex): { targets: InstallTarget[]; unverifiable: string[] } {
   const unverifiable = [...p.nonRegistry];
-  if (p.kind !== "manifest") return { targets: p.targets, unverifiable };
   const targets = [...p.targets];
   if (p.ecosystem === "pypi") {
+    for (const d of p.projectDirs ?? []) {
+      const r = localProjectTargets(d, cwd);
+      targets.push(...r.targets);
+      unverifiable.push(...r.unverifiable);
+    }
+    if (p.kind !== "manifest") return { targets, unverifiable };
     const seen = new Set<string>();
     const queue = p.requirementFiles.map((f) => resolve(cwd, f));
     while (queue.length > 0) {
@@ -110,7 +177,7 @@ export function targetsFor(p: ParsedInstall, cwd: string, lock: LockfileIndex): 
       if (seen.has(f) || seen.size > 10) continue;
       seen.add(f);
       try {
-        const r = parseRequirementsTxt(readFileSync(f, "utf8"));
+        const r = pyManifest(f);
         targets.push(...r.targets);
         unverifiable.push(...r.nonRegistry);
         queue.push(...r.includes.map((i) => resolve(dirname(f), i)));
@@ -118,8 +185,23 @@ export function targetsFor(p: ParsedInstall, cwd: string, lock: LockfileIndex): 
         unverifiable.push(`requirements file ${f.split("/").pop()} could not be read`);
       }
     }
+    // Project-manager installs (uv sync, poetry install, pipenv install/sync) resolve the project
+    // manifest through its lockfile: like npm ci, only dependencies not pinned in the lock are checked.
+    if (p.requirementFiles.length === 0 && !p.projectDirs && (p.manager === "uv" || p.manager === "poetry" || p.manager === "pipenv")) {
+      const file = findUp(cwd, [p.manager === "pipenv" ? "Pipfile" : "pyproject.toml"])[0];
+      if (file) {
+        try {
+          const r = pyManifest(file);
+          unverifiable.push(...r.nonRegistry);
+          for (const t of r.targets) if (!lock.has("pypi", t.name)) targets.push(t);
+        } catch {
+          unverifiable.push(`${basename(file)} could not be read`);
+        }
+      }
+    }
     return { targets, unverifiable };
   }
+  if (p.kind !== "manifest") return { targets: p.targets, unverifiable };
   // npm-family manifest install: the lockfile was reviewed when it was committed; check only
   // dependencies that are not pinned in it.
   const pj = findUp(cwd, ["package.json"])[0];
@@ -211,12 +293,15 @@ export async function gate(input: GateInput, env: GateEnv): Promise<GateResult> 
 
   // Intent drift (LLM, optional): escalate-only, only for packages that already raised something.
   const aiJudge = env.intent;
-  if (aiJudge && input.transcriptPath) {
-    let ctx: ReturnType<typeof parseClaudeTranscript> | null = null;
-    try {
-      ctx = parseClaudeTranscript(readFileSync(input.transcriptPath, "utf8"));
-    } catch {
-      ctx = null;
+  if (aiJudge && (input.userRequest || input.transcriptPath)) {
+    let ctx: ReturnType<typeof parseAgentTranscript> | null = null;
+    if (input.userRequest) ctx = { userRequest: input.userRequest.slice(0, 2000), recentAgentSteps: (input.recentAgentSteps ?? []).slice(-8) };
+    else {
+      try {
+        ctx = parseAgentTranscript(readFileSync(input.transcriptPath!, "utf8"));
+      } catch {
+        ctx = null;
+      }
     }
     if (ctx?.userRequest) {
       const candidates = reports.filter((r) => r.evidence.exists === true && (r.verdict === "warn" || r.hits.length > 0)).slice(0, 3);
@@ -233,6 +318,14 @@ export async function gate(input: GateInput, env: GateEnv): Promise<GateResult> 
     }
   }
 
+  // Agents without a session-start hook (shims, Cursor, Codex): show instruction-file findings once per dir.
+  let dirNotice: DirNotice | null = null;
+  try {
+    dirNotice = (env.dirScan ?? firstVisitScan)(input.cwd, input.agent);
+  } catch {
+    dirNotice = null;
+  }
+
   let verdict = combineVerdicts(reports.map((r) => r.verdict));
   // A human already approved exactly these packages a moment ago (hook → shim double check).
   const nowMs = Date.now();
@@ -243,7 +336,7 @@ export async function gate(input: GateInput, env: GateEnv): Promise<GateResult> 
   const needsApproval = verdict === "hold" || holdOnWarn;
   const approverKind = cfg.key ? "key" : cfg.passkeys.length > 0 ? "passkey" : "none";
   const shown = reports.filter((r) => r.verdict !== "allow" || reports.length <= 3);
-  const display = [...shown.map((r) => formatReport(r, { color: !!process.stderr.isTTY })), nextStep(needsApproval ? "hold" : verdict, approverKind)].filter(Boolean).join("\n");
+  const display = [dirNotice?.human, ...shown.map((r) => formatReport(r, { color: !!process.stderr.isTTY })), nextStep(needsApproval ? "hold" : verdict, approverKind)].filter(Boolean).join("\n");
 
   let decision: GateResult["decision"] = "allow";
   let outcome: GateResult["outcome"] = verdict === "warn" ? "warned" : "allowed";
@@ -289,6 +382,10 @@ export async function gate(input: GateInput, env: GateEnv): Promise<GateResult> 
 
   const result: GateResult = { decision, verdict, outcome, reports, display, agentText, durationMs: Date.now() - started };
   if (approval) result.approval = approval;
+  if (dirNotice) {
+    result.notice = dirNotice.human;
+    result.agentText = [dirNotice.agent, result.agentText].filter(Boolean).join("\n\n");
+  }
   record(cfg, input, result);
   return result;
 }
