@@ -81,7 +81,7 @@ From [`docs/EVAL.md`](docs/EVAL.md) (`pnpm eval`, `LADON_AI=off`):
 | malicious (16 harmless canaries imitating real attack shapes) | 0 | 0 | 16 |
 | hallucinated (19 non-existent / Atlas names) | 0 | 0 | 19 |
 
-Cached verdict ≈ 190 ms end to end through the hook; uncached ≈ 0.3–1.2 s. The malicious set is our own
+Latency is measured by `pnpm bench` ([`docs/BENCH.md`](docs/BENCH.md)): cached verdict ~1–8 ms in the engine (the hook adds Node start-up, ≈ 190 ms end to end), uncached ≈ 0.3–1.2 s, full gate → Ladon Key → approve loop ≈ 1.8 s including the 1.5 s hold. The malicious set is our own
 canaries, so this measures whether the rules catch known attack *shapes*, not novel ones.
 
 ## Quick start

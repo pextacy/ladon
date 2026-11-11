@@ -30,7 +30,8 @@ bool holding = false;
 uint32_t holdStartMs = 0;
 uint32_t outcomeUntilMs = 0;
 
-// Optional wall clock from {"t":"time"} — display only.
+// Wall clock from {"t":"time"}: drives the countdown and lets the Key refuse requests whose
+// `exp` has already passed (it never signs an approval for an expired request).
 bool haveTime = false;
 uint64_t timeBaseUnix = 0;
 uint32_t timeBaseMs = 0;
@@ -59,12 +60,17 @@ void finish(bool ok, const char* reason) {
   outcomeUntilMs = millis() + kOutcomeShowMs;
 }
 
+uint64_t unixNow(uint32_t now) { return timeBaseUnix + (now - timeBaseMs) / 1000; }
+
+// True when the host told us the time and the request's expiry is at or before it.
+bool expired(const protocol::Request& r, uint32_t now) { return haveTime && r.exp <= unixNow(now); }
+
 uint32_t remainingSeconds(uint32_t now) {
   uint32_t elapsed = now - pendingSinceMs;
   uint32_t local = elapsed >= REQUEST_TIMEOUT_MS ? 0 : (REQUEST_TIMEOUT_MS - elapsed + 999) / 1000;
   if (!haveTime) return local;
-  uint64_t unixNow = timeBaseUnix + (now - timeBaseMs) / 1000;
-  uint64_t toExp = pending.exp > unixNow ? pending.exp - unixNow : 0;
+  uint64_t t = unixNow(now);
+  uint64_t toExp = pending.exp > t ? pending.exp - t : 0;
   return toExp < local ? static_cast<uint32_t>(toExp) : local;
 }
 
@@ -84,6 +90,8 @@ void handleMessage(uint32_t now) {
         protocol::sendErr("keystore unavailable");
       } else if (state == State::Pending) {
         protocol::sendErr("busy");
+      } else if (expired(msg.req, now)) {
+        protocol::sendErr("expired");
       } else {
         pending = msg.req;
         pendingSinceMs = now;
@@ -112,7 +120,7 @@ void tickPending(uint32_t now) {
     finish(false, nullptr);
     return;
   }
-  if (now - pendingSinceMs >= REQUEST_TIMEOUT_MS) {
+  if (now - pendingSinceMs >= REQUEST_TIMEOUT_MS || expired(pending, now)) {
     finish(false, "timeout");
     return;
   }

@@ -53,7 +53,7 @@ that does not parse.
 | `{"t":"hello"}` | reply `{"t":"hello","v":1,"pk":"<64 hex>","ctr":<uint32>,"name":"Ladon Key"}`. `ctr` = last counter used (0 = never signed). |
 | `{"t":"req","id":"a1b2","pkg":"npm:color-fn-utils@1.0.2","score":85,"why":["..."],"h":"<64 hex>","n":"<hex>","exp":1763139600}` | show request, wait for the human. |
 | `{"t":"cancel","id":"a1b2"}` | drop the pending request with that id and return to idle. No reply. Unknown or stale ids are silently ignored. |
-| `{"t":"time","now":<unix s>}` | optional. Display only: the countdown shows `min(120 s local, exp - now)`. |
+| `{"t":"time","now":<unix s>}` | optional, sent by the daemon before each `req`. The countdown shows `min(120 s local, exp - now)`, a `req` whose `exp` ≤ now is answered with `{"t":"err","msg":"expired"}`, and a pending request times out (signed `ok:false`, `reason:"timeout"`) the moment `exp` passes — the Key never signs an approval for an expired request. |
 
 Field rules for `req`. A field that breaks a rule gets `{"t":"err","msg":"bad req"}`:
 
@@ -83,7 +83,7 @@ every response, approve or reject. If the commit fails the Key sends
 `{"t":"err","msg":"counter persist failed"}` and signs nothing. The host must treat that as a rejection.
 `reason` is not signed.
 
-`err` messages: `bad json`, `missing t`, `unknown t`, `bad req`, `bad cancel`, `bad time`,
+`err` messages: `bad json`, `missing t`, `unknown t`, `bad req`, `bad cancel`, `bad time`, `expired`,
 `oversize`, `busy` (a req arrived while one is pending), `keystore unavailable`,
 `counter persist failed`.
 
@@ -94,7 +94,9 @@ every response, approve or reject. If the commit fails the Key sends
   arrives, it must be released and pressed again, so a jammed or taped button can't approve.
 - **Reject**: one press of CANCEL. If both buttons are active in the same tick, reject wins.
 - **Timeout**: 120 s after the request arrives, the Key sends a signed `ok:false` with
-  `reason:"timeout"`. The Key has no RTC, so it does not check `exp`; the host must.
+  `reason:"timeout"` — or earlier, as soon as the request's `exp` passes. The Key has no RTC; it
+  learns the time from the daemon's `{"t":"time"}` line and refuses (`err: expired`) a request that
+  is already past `exp`. The host still checks `exp` on every response.
 - LED: off when idle, red pulse while a request waits, green flash on approve, solid red flash on
   reject or timeout, steady red on a fatal keystore error.
 
