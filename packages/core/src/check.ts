@@ -201,9 +201,9 @@ async function gatherNpm(ev: Evidence, target: InstallTarget, deps: CheckDeps, o
           ev,
           "install-script analysis",
           hasScripts,
-          cached(deps.cache, `analysis:npm:${target.name}@${version}:v1`, TTL.analysis, async () => {
+          cached(deps.cache, `analysis:npm:${target.name}@${version}:v2`, TTL.analysis, async () => {
             const tgz = await deps.npm.tarball(v!.tarball!, 8 * 1024 * 1024);
-            return tgz ? analyzeNpmTarball(regEv.installScripts, tgz) : null;
+            return tgz ? analyzeNpmTarball(regEv.installScripts, tgz, { packageName: target.name }) : null;
           }),
         )
       : Promise.resolve(undefined),

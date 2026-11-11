@@ -204,10 +204,13 @@ export const R15: Rule = {
   id: "R15",
   name: "agent_config_write",
   weight: 30,
-  evaluate: (ev) =>
-    ev.scripts && ev.scripts.agentConfig.length > 0
-      ? { hit: true, detail: `install code ${first(ev.scripts.agentConfig)} — AI-tool persistence pattern` }
-      : miss,
+  evaluate: (ev) => {
+    const s = ev.scripts;
+    if (!s) return miss;
+    if (s.agentConfig.length > 0) return { hit: true, detail: `install code ${first(s.agentConfig)}${more(s.agentConfig)} — AI-tool persistence pattern` };
+    const w = s.agentConfigWrites ?? [];
+    return w.length > 0 ? { hit: true, detail: `package code ${first(w)}${more(w)} — AI-tool persistence pattern` } : miss;
+  },
 };
 
 /** Lockfile pins this version with a hash the registry does not publish for it (tampered lockfile or registry). */

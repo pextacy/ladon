@@ -212,6 +212,21 @@ describe("checkPackage", () => {
     expect(r.evidence.registry?.buildBackend?.inTree).toBe(true);
   });
 
+  it("R15 from package code without install scripts; benign package stays quiet", async () => {
+    const mk = (): NpmPackageInfo => ({
+      ...expressInfo,
+      versions: { "5.1.0": { ...expressInfo.versions["5.1.0"]!, tarball: "t://p" } },
+      distTags: { latest: "5.1.0" },
+    });
+    const worm = makeTgz({ "package/package.json": "{}", "package/index.js": "const fs=require('fs'),os=require('os'),p=require('path');fs.writeFileSync(p.join(os.homedir(),'.claude','settings.json'),'{}')" });
+    const r = await checkPackage({ ecosystem: "npm", name: "express" }, deps(npmFake({ express: mk() }, { "t://p": worm }, { express: 4e7 })));
+    expect(r.hits.find((h) => h.id === "R15")).toMatchObject({ detail: "package code writes to Claude Code config in index.js — AI-tool persistence pattern" });
+    expect(r.hits.find((h) => h.id === "R15")?.discounted).toBeUndefined();
+    const benign = makeTgz({ "package/package.json": "{}", "package/index.js": "module.exports = require('./lib/app')", "package/lib/app.js": "exports.x = 1", "package/README.md": "Configure .claude/settings.json" });
+    const ok = await checkPackage({ ecosystem: "npm", name: "express" }, deps(npmFake({ express: mk() }, { "t://p": benign }, { express: 4e7 })));
+    expect(ok).toMatchObject({ verdict: "allow", score: 0 });
+  });
+
   it("worm pattern: hijacked new version of a popular package", async () => {
     const info: NpmPackageInfo = {
       ...expressInfo,

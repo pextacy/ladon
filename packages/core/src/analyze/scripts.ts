@@ -1,7 +1,8 @@
 import type { BuildBackendInfo, ScriptFindings } from "../evidence.js";
 import { parseTomlSubset } from "../parse/pyproject.js";
 import { analyzeJsAst } from "./js.js";
-import { AGENT_CONFIG, ENV, matchAll, NETWORK, OBFUSCATION, PY_EXEC, PY_NETWORK } from "./patterns.js";
+import { agentConfigWrites } from "./agentconfig.js";
+import { AGENT_CONFIG, AGENT_CONFIG_OWNERS, ENV, matchAll, NETWORK, OBFUSCATION, PY_EXEC, PY_NETWORK } from "./patterns.js";
 import { readTarGz, stripRoot, type TarFile } from "./tar.js";
 
 export const INSTALL_HOOKS = ["preinstall", "install", "postinstall", "prepare"] as const;
@@ -60,7 +61,7 @@ function addAll(target: string[], items: string[], where: string) {
  * Analyse what runs at install time in an npm package: the lifecycle commands themselves, the files
  * they invoke (depth ≤ 2 via relative requires), and binding.gyp command expansions.
  */
-export function analyzeNpmFiles(installScripts: Record<string, string>, tar: TarFile[]): ScriptFindings & { hasBindingGyp: boolean } {
+export function analyzeNpmFiles(installScripts: Record<string, string>, tar: TarFile[], opts: NpmAnalysisOptions = {}): ScriptFindings & { hasBindingGyp: boolean } {
   const dec = new TextDecoder();
   const files = new Map<string, string>();
   for (const f of tar) files.set(stripRoot(f.path), dec.decode(f.data));
@@ -109,21 +110,53 @@ export function analyzeNpmFiles(installScripts: Record<string, string>, tar: Tar
   if (Object.keys(installScripts).length > 0 && f.files.length === 0 && Object.values(installScripts).some((c) => referencedFiles(c).length > 0)) {
     f.note = "install script references files that are not in the package";
   }
+
+  // R15 across the whole package: code anywhere in it that writes the user's global AI-tool config.
+  const owned = (opts.packageName && AGENT_CONFIG_OWNERS[opts.packageName]) || [];
+  const writes: string[] = [];
+  let n = 0;
+  for (const [path, code] of files) {
+    if (seen.has(path) || !isScanCandidate(path)) continue;
+    if (++n > R15_SCAN_MAX_FILES) break;
+    const lang = /\.py$/.test(path) ? "py" : /\.(sh|bash|ps1)$/.test(path) ? "sh" : "js";
+    addAll(writes, agentConfigWrites(code, lang, { skipFamilies: owned, homeOnly: true }), path);
+  }
+  if (writes.length > 0) f.agentConfigWrites = writes;
   return f;
 }
 
-/** Which tarball entries we need to read for npm analysis. */
+/** Package-wide R15 scan bounds (on top of readTarGz's 2 MB total). */
+export const R15_SCAN_MAX_FILES = 200;
+const SCAN_EXT = /\.(c?js|mjs|cts|mts|ts|jsx|tsx|sh|bash|ps1|py)$/;
+// not shipped code paths: tests, fixtures, examples, docs, type declarations, source maps
+const SCAN_SKIP = /(?:^|\/)(?:test|tests|__tests__|spec|fixtures?|examples?|docs?)\/|\.(?:test|spec)\.[cm]?[jt]sx?$|\.d\.[cm]?ts$|\.min\.map$|\.map$/;
+
+const isScanCandidate = (p: string) => SCAN_EXT.test(p) && !SCAN_SKIP.test(p);
+
+/** Which tarball entries we need to read for npm analysis (install-time code + R15 scan files). */
 export function npmWanted(installScripts: Record<string, string>): (path: string, size: number) => boolean {
   const any = Object.keys(installScripts).length > 0;
+  let scanned = 0;
   return (path, size) => {
     const p = stripRoot(path);
     if (p === "binding.gyp" || p === "package.json") return true;
-    return any && size < 512 * 1024 && (CODE_EXT.test(p) || !/\.\w+$/.test(p));
+    if (size >= 512 * 1024) return false;
+    if (any && (CODE_EXT.test(p) || !/\.\w+$/.test(p))) return true;
+    if (scanned < R15_SCAN_MAX_FILES && isScanCandidate(p)) {
+      scanned++;
+      return true;
+    }
+    return false;
   };
 }
 
-export function analyzeNpmTarball(installScripts: Record<string, string>, tgz: Uint8Array) {
-  return analyzeNpmFiles(installScripts, readTarGz(tgz, npmWanted(installScripts)));
+export interface NpmAnalysisOptions {
+  /** package name, so agent CLIs writing their own config are not flagged (AGENT_CONFIG_OWNERS) */
+  packageName?: string;
+}
+
+export function analyzeNpmTarball(installScripts: Record<string, string>, tgz: Uint8Array, opts: NpmAnalysisOptions = {}) {
+  return analyzeNpmFiles(installScripts, readTarGz(tgz, npmWanted(installScripts)), opts);
 }
 
 /** Python sdist: setup.py runs at install time when no wheel is available. */

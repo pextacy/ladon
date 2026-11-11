@@ -53,6 +53,11 @@ describe("rules", () => {
     expect(R08.evaluate(b({ backend: "x.api", nonStandard: true })).detail).toBe('no wheel available — uses the non-standard build backend "x.api"');
     expect(R08.evaluate(b({ backend: "setuptools.build_meta" })).detail).toContain("setup.py");
   });
+  it("R15 package-wide writes (no install-time reference)", () => {
+    const e = ev({ scripts: scripts({ agentConfigWrites: ["writes to Claude Code config (lib/index.js)", "writes to Cursor config (lib/x.js)"] }) });
+    expect(R15.evaluate(e).detail).toBe("package code writes to Claude Code config in lib/index.js (+1 more) — AI-tool persistence pattern");
+    expect(R15.evaluate(ev({ scripts: scripts({ agentConfigWrites: [] }) })).hit).toBe(false);
+  });
   it("R09–R11, R15 script findings", () => {
     const e = ev({ scripts: scripts({ network: ["loads a network module (x.js)"], env: ["reads environment variables (x.js)"], obfuscation: ["uses eval() (x.js)"], agentConfig: ["references Claude Code config (x.js)"] }) });
     expect(R09.evaluate(e).detail).toBe("install script loads a network module in x.js");

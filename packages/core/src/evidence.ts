@@ -8,8 +8,13 @@ export interface ScriptFindings {
   network: string[];
   env: string[];
   obfuscation: string[];
-  /** references to AI-agent / editor config paths anywhere in the package (R15) */
+  /** references to AI-agent / editor config paths in install-time code (R15) */
   agentConfig: string[];
+  /**
+   * npm: files outside the install-time code that *write* AI-tool config (R15), from a bounded scan
+   * of the package's code files (≤ 200 files, ≤ 2 MB). Mentions in docs or reads don't count.
+   */
+  agentConfigWrites?: string[];
   note?: string;
 }
 
