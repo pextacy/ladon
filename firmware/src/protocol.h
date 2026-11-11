@@ -43,7 +43,7 @@ void begin();
 bool poll(Message* out);
 
 void sendHello();
-void sendErr(const char* msg);
+void sendErr(const char* msg, const char* id = nullptr);
 
 // Increments + persists the counter, then signs `${id}|${h}|${n}|${exp}|${ok}|${ctr}`
 // and sends {"t":"res",...}. reason (nullable) is appended unsigned.

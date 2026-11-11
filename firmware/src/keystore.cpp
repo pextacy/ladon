@@ -64,10 +64,13 @@ bool begin() {
 
   bool haveKey = prefs.getBytesLength(kKeySk) == sizeof(sk) &&
                  prefs.getBytes(kKeySk, sk, sizeof(sk)) == sizeof(sk);
+  // A stored-but-unreadable key is an error, not a first boot: silently minting a new identity
+  // would also reset the counter. Re-pairing is an explicit `pio run -t erase`.
+  if (!haveKey && prefs.isKey(kKeySk)) return false;
   if (!haveKey) {
     generateSecret(sk);
     if (prefs.putBytes(kKeySk, sk, sizeof(sk)) != sizeof(sk)) return false;
-    prefs.putUInt(kKeyCtr, 0);
+    if (prefs.putUInt(kKeyCtr, 0) != sizeof(uint32_t)) return false;
     uint8_t check[32];
     if (prefs.getBytes(kKeySk, check, sizeof(check)) != sizeof(check) ||
         memcmp(check, sk, sizeof(sk)) != 0) {

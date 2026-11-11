@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { delimiter, join, resolve } from "node:path";
+import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { constants as osConstants } from "node:os";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { parseInstallCommand } from "@ladon/core";
 import { CLI_ENTRY, gateCommand } from "./client.js";
 import { PATHS } from "./config.js";
@@ -15,15 +16,45 @@ export function shq(a: string): string {
   return /^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`;
 }
 
-/** The real binary: first match on PATH that isn't our shim directory. */
-export function realBinary(name: string, path = process.env.PATH ?? ""): string | undefined {
-  const shimDir = resolve(PATHS.shims);
+const real = (p: string) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+};
+
+/** A Ladon shim (ours or a copy / symlink of one) — exec'ing it would recurse forever. */
+function isLadonShim(p: string): boolean {
+  try {
+    const fd = openSync(p, "r");
+    try {
+      const buf = Buffer.alloc(256);
+      const n = readSync(fd, buf, 0, 256, 0);
+      return buf.subarray(0, n).toString("utf8").includes(MARK);
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The real binary: first match on PATH that isn't a Ladon shim. The shim dir is compared after resolving
+ * symlinks (`~/bin -> ~/.ladon/shims`, `./`-relative entries, trailing slashes), and any file carrying the
+ * shim marker is skipped too.
+ */
+export function realBinary(name: string, path = process.env.PATH ?? "", shimDir = PATHS.shims): string | undefined {
+  const shims = real(shimDir);
   for (const dir of path.split(delimiter)) {
-    if (!dir || resolve(dir) === shimDir) continue;
+    if (!dir || real(dir) === shims) continue;
     const p = join(dir, name);
     try {
       accessSync(p, constants.X_OK);
-      if (statSync(p).isFile()) return p;
+      if (!statSync(p).isFile()) continue;
+      if (dirname(real(p)) === shims || isLadonShim(p)) continue;
+      return p;
     } catch {
       /* not here */
     }
@@ -66,7 +97,13 @@ export async function shimExec(tool: string, args: string[]): Promise<number> {
     process.stderr.write(`ladon: ${res.error.message}\n`);
     return 1;
   }
-  return res.status ?? (res.signal ? 128 : 1);
+  return exitCode(res);
+}
+
+/** Shell convention: a child killed by a signal exits 128 + signal number (SIGINT → 130). */
+export function exitCode(res: { status: number | null; signal: NodeJS.Signals | null }): number {
+  if (res.status !== null) return res.status;
+  return res.signal ? 128 + (osConstants.signals[res.signal] ?? 0) : 1;
 }
 
 /**
@@ -131,13 +168,7 @@ export function installShims(): string[] {
 
 /** Which shims (package managers + python) are present in the shim directory. */
 export function installedShims(): string[] {
-  return [...SHIMMED, ...PY_SHIMS].filter((t) => {
-    try {
-      return readFileSync(join(PATHS.shims, t), "utf8").includes(MARK);
-    } catch {
-      return false;
-    }
-  });
+  return [...SHIMMED, ...PY_SHIMS].filter((t) => isLadonShim(join(PATHS.shims, t)));
 }
 
 export function uninstallShims(): number {
@@ -145,13 +176,7 @@ export function uninstallShims(): number {
   let n = 0;
   for (const f of readdirSync(PATHS.shims)) {
     const p = join(PATHS.shims, f);
-    let body = "";
-    try {
-      body = statSync(p).isFile() ? readFileSync(p, "utf8") : "";
-    } catch {
-      /* vanished */
-    }
-    if (body.includes(MARK)) {
+    if (isLadonShim(p)) {
       rmSync(p);
       n++;
     }

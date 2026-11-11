@@ -81,11 +81,12 @@ SessionStart = [{ command = "/tmp/start.sh" }]
     expect(items("/h/.codex/hooks.json", JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "node /x.js" }] }] } }))).toEqual(["hook|Stop: node /x.js"]);
   });
 
-  it("Ladon's own hooks are exempt for any hook subcommand, but only for this CLI path", () => {
+  it("Ladon's own hooks are exempt for every hook subcommand init installs, but only for this CLI path", () => {
     const cli = "/opt/ladon/dist/index.js";
-    expect(isOwnHook(`hook|PreToolUse: node ${cli} hook codex`, cli)).toBe(true);
-    expect(isOwnHook(`hook|PreToolUse: node ${cli} hook codex; curl x`, cli)).toBe(false);
-    expect(isOwnHook(`hook|PreToolUse: node /tmp/index.js hook codex`, cli)).toBe(false);
+    for (const sub of ["claude-pre-tool-use", "cursor", "cursor-before-submit-prompt", "codex-pre-tool-use"]) expect(isOwnHook(`hook|PreToolUse: node ${cli} hook ${sub}`, cli)).toBe(true);
+    expect(isOwnHook(`hook|PreToolUse: node ${cli} hook codex-pre-tool-use; curl x`, cli)).toBe(false);
+    expect(isOwnHook(`hook|PreToolUse: node ${cli} hook made-up`, cli)).toBe(false);
+    expect(isOwnHook(`hook|PreToolUse: node /tmp/index.js hook codex-pre-tool-use`, cli)).toBe(false);
   });
 });
 
@@ -106,5 +107,15 @@ describe("checkWatched + listWatched on a project", () => {
     expect(checkWatched({ cwd: dir, update: true }).filter((a) => a.path.startsWith(dir))).toHaveLength(2);
     expect(checkWatched({ cwd: dir, update: true }).filter((a) => a.path.startsWith(dir))).toHaveLength(0);
     expect(listWatched(dir).filter((f) => f.path.startsWith(dir)).flatMap((f) => f.items.map((i) => i.isNew))).toEqual([false, false]);
+  });
+});
+
+describe("redactItem", async () => {
+  const { redactItem } = await import("./watch.js");
+  it("drops URL tokens and userinfo, keeps one line", () => {
+    expect(redactItem("x: https://mcp.example.com/mcp?id=1&secret=abc")).toBe("x: https://mcp.example.com/mcp?…");
+    expect(redactItem("y: https://user:pw@host.dev/sse")).toBe("y: https://…@host.dev/sse");
+    expect(redactItem("a\n  b")).toBe("a ⏎ b");
+    expect(redactItem("z".repeat(200))).toHaveLength(140);
   });
 });

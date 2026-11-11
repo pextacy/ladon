@@ -1,6 +1,6 @@
 import { appendFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { LADON_VERSION } from "@ladon/core";
 import { DAEMON_PORT, daemonToken, loadConfig, PATHS } from "./config.js";
@@ -51,9 +51,22 @@ async function readBody(req: IncomingMessage, max = 64 * 1024): Promise<unknown>
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-function send(res: ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
-  res.end(JSON.stringify(body));
+/**
+ * The daemon proves it knows the token (HMAC over the client's random challenge), so a process that
+ * merely grabbed 127.0.0.1:port — e.g. one started by a hijacked agent — can't pose as the daemon,
+ * learn the token, or answer "allow".
+ */
+export function daemonProof(token: string, challenge: string, body = ""): string {
+  return createHmac("sha256", token).update(`ladon-daemon:v1|${challenge}|${createHash("sha256").update(body).digest("hex")}`).digest("hex");
+}
+const CHALLENGE = /^[0-9a-f]{32,128}$/;
+
+function send(res: ServerResponse, status: number, body: unknown, proof?: { token: string; challenge: string | undefined }) {
+  const text = JSON.stringify(body);
+  const headers: Record<string, string> = { "content-type": "application/json", "cache-control": "no-store" };
+  if (proof?.challenge && CHALLENGE.test(proof.challenge)) headers["x-ladon-proof"] = daemonProof(proof.token, proof.challenge, text);
+  res.writeHead(status, headers);
+  res.end(text);
 }
 
 /** One approval at a time: the Key can only show one request. */
@@ -68,6 +81,7 @@ export async function runDaemon(port = DAEMON_PORT) {
   loadLadonEnv();
   const token = daemonToken();
   const tok = Buffer.from(token);
+  if (tok.length < 16) throw new Error("daemon token missing or too short");
   const env = { ...(await gateEnv()), approvalLock: serialized };
   const watcher = new ConfigWatcher();
   const announce = (alerts: { detail: string }[]) => {
@@ -83,8 +97,9 @@ export async function runDaemon(port = DAEMON_PORT) {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     if (req.method === "GET" && url.pathname === "/health") {
       const cfg = loadConfig();
-      return send(res, 200, { ok: true, version: LADON_VERSION, pid: process.pid, key: !!cfg.key, passkeys: cfg.passkeys.length, ai: !!env.intent });
+      return send(res, 200, { ok: true, version: LADON_VERSION, pid: process.pid, key: !!cfg.key, passkeys: cfg.passkeys.length, ai: !!env.intent }, { token, challenge: url.searchParams.get("c") ?? undefined });
     }
+    const challenge = String(req.headers["x-ladon-challenge"] ?? "") || undefined;
     const given = Buffer.from(String(req.headers["x-ladon-token"] ?? ""));
     if (given.length !== tok.length || !timingSafeEqual(given, tok)) return send(res, 401, { error: "bad token" });
 
@@ -113,7 +128,7 @@ export async function runDaemon(port = DAEMON_PORT) {
         log(`${r.decision} ${r.verdict} ${r.outcome} ${body.command.slice(0, 200)}`);
         // guard-the-guards: remember this project, check it if new, and hand pending config alerts to the agent
         announce(watcher.touch(body.cwd));
-        return send(res, 200, withConfigAlerts(slimResult(r), watcher.take()));
+        return send(res, 200, withConfigAlerts(slimResult(r), watcher.take()), { token, challenge });
       } catch (e) {
         log(`error ${e instanceof Error ? e.stack : String(e)}`);
         return send(res, 500, { error: e instanceof Error ? e.message : String(e) });

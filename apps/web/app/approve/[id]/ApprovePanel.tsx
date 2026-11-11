@@ -65,10 +65,10 @@ export function ApprovePanel({ initial, serverNow }: { initial: PublicApproval; 
       <section aria-labelledby="req" className="overflow-hidden rounded-xl border-2 border-hold bg-surface">
         <div className="bg-hold-bg px-5 pt-5 pb-4">
           <p className="flex items-baseline justify-between gap-3">
-            <span className="font-mono text-5xl font-bold tracking-tight text-hold">
+            <span className="font-mono text-4xl font-bold tracking-tight text-hold min-[380px]:text-5xl">
               <span aria-hidden="true">■</span> HOLD
             </span>
-            <span className="text-right font-mono">
+            <span className="shrink-0 text-right font-mono">
               <span className="text-3xl font-bold">{a.score}</span>
               <span className="text-muted">/100</span>
             </span>

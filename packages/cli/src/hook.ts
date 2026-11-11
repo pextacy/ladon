@@ -12,6 +12,32 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/**
+ * Claude Code kills a hook after its timeout (150 s, see init.ts) and then lets the tool call run —
+ * fail open. So the hook gives up first and denies. Cursor and Codex get the same budget.
+ */
+export const HOOK_DEADLINE_MS = 140_000;
+
+export async function gateWithDeadline(
+  input: Parameters<typeof gateCommand>[0],
+  ms = HOOK_DEADLINE_MS,
+  run: typeof gateCommand = gateCommand,
+): Promise<Awaited<ReturnType<typeof gateCommand>>> {
+  const ctrl = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      ctrl.abort();
+      reject(new Error(`no verdict within ${Math.round(ms / 1000)} s`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([run(input, undefined, ctrl.signal), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const PreToolUse = z.object({
   hook_event_name: z.string().optional(),
   tool_name: z.string(),
@@ -41,7 +67,7 @@ async function claudePreToolUseInner(): Promise<number> {
   } catch {
     return 0; // not our event shape — never break the agent on malformed input
   }
-  const cwd0 = input.cwd ?? process.cwd();
+  const cwd0 = input.cwd || process.cwd();
   if (input.tool_name !== "Bash") {
     const target = input.tool_input.file_path ?? input.tool_input.notebook_path;
     const reason = target ? tamperReasonEdit(target, cwd0) : null;
@@ -56,9 +82,9 @@ async function claudePreToolUseInner(): Promise<number> {
     return 0;
   }
   if (parseInstallCommand(command).length === 0) return 0;
-  const r = await gateCommand({
+  const r = await gateWithDeadline({
     command,
-    cwd: input.cwd ?? process.cwd(),
+    cwd: input.cwd || process.cwd(),
     ...(input.transcript_path ? { transcriptPath: input.transcript_path } : {}),
     agent: "claude-code",
   });
@@ -108,7 +134,7 @@ const CursorShell = z.object({ command: z.string(), cwd: z.string().optional(), 
 const CursorPrompt = z.object({ prompt: z.string(), conversation_id: z.string().optional() }).passthrough();
 
 /** Cursor `beforeShellExecution`. Install commands go through the gate; the user's last prompt (stored by beforeSubmitPrompt) feeds the intent judge. */
-export async function handleCursorBeforeShell(raw: string, gateFn: GateFn = gateCommand): Promise<HookOutput> {
+export async function handleCursorBeforeShell(raw: string, gateFn: GateFn = (i) => gateWithDeadline(i)): Promise<HookOutput> {
   const out = (o: unknown): HookOutput => ({ stdout: JSON.stringify(o), stderr: "", code: 0 });
   let input;
   try {
@@ -128,7 +154,7 @@ export async function handleCursorBeforeShell(raw: string, gateFn: GateFn = gate
   if (parseInstallCommand(input.command).length === 0) return out({ permission: "allow" });
   let r;
   try {
-    r = await gateFn({ command: input.command, cwd: input.cwd ?? process.cwd(), agent: "cursor", ...(ctx ? { userRequest: ctx.userRequest, recentAgentSteps: ctx.recentAgentSteps } : {}) });
+    r = await gateFn({ command: input.command, cwd: input.cwd || process.cwd(), agent: "cursor", ...(ctx ? { userRequest: ctx.userRequest, recentAgentSteps: ctx.recentAgentSteps } : {}) });
   } catch (e) {
     return out({ permission: "deny", userMessage: `Ladon internal error — install blocked`, agentMessage: `Ladon could not check this install (${e instanceof Error ? e.message : String(e)}); it is blocked.` });
   }
@@ -155,9 +181,15 @@ async function emit(p: Promise<HookOutput> | HookOutput): Promise<number> {
   return o.code;
 }
 
-/** Cursor `beforeShellExecution` hook (hooks.json). */
+/** Cursor `beforeShellExecution` hook (hooks.json). Any internal failure denies (fail closed). */
 export async function cursorBeforeShell(): Promise<number> {
-  return emit(handleCursorBeforeShell(await readStdin()));
+  try {
+    return await emit(handleCursorBeforeShell(await readStdin()));
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    process.stdout.write(JSON.stringify({ permission: "deny", userMessage: `Ladon internal error — command blocked: ${m}`, agentMessage: `Ladon could not check this command (${m}); it is blocked (fail closed). Tell the user; do not try another way.` }));
+    return 0;
+  }
 }
 
 export async function cursorBeforeSubmitPrompt(): Promise<number> {
@@ -220,7 +252,7 @@ function codexDeny(reason: string, human?: string): HookOutput {
 }
 
 /** Codex CLI PreToolUse hook (~/.codex/hooks.json). Fail closed on internal errors for install commands. */
-export async function handleCodexPreToolUse(raw: string, gateFn: GateFn = gateCommand): Promise<HookOutput> {
+export async function handleCodexPreToolUse(raw: string, gateFn: GateFn = (i) => gateWithDeadline(i)): Promise<HookOutput> {
   const pass: HookOutput = { stdout: "", stderr: "", code: 0 };
   let input;
   try {
@@ -228,7 +260,7 @@ export async function handleCodexPreToolUse(raw: string, gateFn: GateFn = gateCo
   } catch {
     return pass; // not our event shape — never break the agent on malformed input
   }
-  const cwd = input.cwd ?? process.cwd();
+  const cwd = input.cwd || process.cwd();
   if (CODEX_PATCH_TOOLS.has(input.tool_name)) {
     for (const f of patchFiles(input.tool_input)) {
       const reason = tamperReasonEdit(f, cwd);
@@ -263,5 +295,10 @@ export async function codexPreToolUse(): Promise<number> {
   } catch {
     return 0;
   }
-  return emit(handleCodexPreToolUse(raw));
+  try {
+    return await emit(handleCodexPreToolUse(raw));
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    return emit(codexDeny(`Ladon could not check this command (${m}), so it is blocked (fail closed). Tell the user; do not try another way.`, `■ Ladon internal error — command blocked: ${m}`));
+  }
 }

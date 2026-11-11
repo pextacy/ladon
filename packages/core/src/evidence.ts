@@ -49,6 +49,8 @@ export interface RegistryEvidence {
   repositoryDirectory?: string;
   /** install lifecycle scripts of the resolved version: name → command */
   installScripts: Record<string, string>;
+  /** install lifecycle scripts of the previous version (npm), to tell a routine release from one that adds/changes them */
+  previousInstallScripts?: Record<string, string>;
   hasBindingGyp: boolean;
   /** npm provenance attestation present */
   provenance?: boolean;

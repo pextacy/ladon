@@ -3,8 +3,10 @@ import { z } from "zod";
 import { safeEqual } from "./tokens";
 
 /**
- * Signed, httpOnly cookie sessions for /dashboard. HMAC-SHA256 with LADON_SESSION_SECRET; without it
- * (local dev) a random per-process secret is used, so sessions end when the server restarts.
+ * Signed, httpOnly cookie sessions for /dashboard. HMAC-SHA256 with LADON_SESSION_SECRET (≥ 32 chars).
+ * Without it, local dev uses a random per-process secret (sessions end on restart). In production a
+ * missing/short secret fails closed: sign-in is disabled and every cookie is treated as signed-out —
+ * a per-instance random secret would make sign-in fail at random across serverless instances.
  */
 
 export const SESSION_COOKIE = "ladon_session";
@@ -14,10 +16,23 @@ export const CHALLENGE_TTL_S = 5 * 60;
 
 const g = globalThis as unknown as { __ladonDevSecret?: string };
 
+export class SessionConfigError extends Error {}
+
 export function sessionSecret(env: Record<string, string | undefined> = process.env): string {
   const s = env.LADON_SESSION_SECRET;
   if (s && s.length >= 32) return s;
+  if (env.NODE_ENV === "production") throw new SessionConfigError("LADON_SESSION_SECRET is missing or shorter than 32 characters");
   return (g.__ladonDevSecret ??= randomBytes(32).toString("base64url"));
+}
+
+/** false in production when LADON_SESSION_SECRET is unusable — sign-in must be refused. */
+export function sessionConfigured(env: Record<string, string | undefined> = process.env): boolean {
+  try {
+    sessionSecret(env);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function mac(secret: string, purpose: string, body: string): string {
@@ -29,8 +44,14 @@ export function sign(payload: object, purpose: string, secret = sessionSecret())
   return `${body}.${mac(secret, purpose, body)}`;
 }
 
-export function unsign<S extends z.ZodType>(token: string | undefined, purpose: string, schema: S, nowSec: number, secret = sessionSecret()): z.infer<S> | null {
+export function unsign<S extends z.ZodType>(token: string | undefined, purpose: string, schema: S, nowSec: number, secretOverride?: string): z.infer<S> | null {
   if (!token) return null;
+  let secret: string;
+  try {
+    secret = secretOverride ?? sessionSecret();
+  } catch {
+    return null; // not configured: nobody is signed in
+  }
   const [body, sig] = token.split(".");
   if (!body || !sig || !safeEqual(sig, mac(secret, purpose, body))) return null;
   let raw: unknown;

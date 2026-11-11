@@ -3,8 +3,9 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { VerdictMark } from "@/app/components/Verdict";
 import { effectiveStatus, nowSeconds } from "@/lib/approvals";
+import { loadDashboard } from "@/lib/dashboard";
 import { shortDate } from "@/lib/format";
-import { Session, SESSION_COOKIE, unsign } from "@/lib/session";
+import { Session, SESSION_COOKIE, sessionConfigured, unsign } from "@/lib/session";
 import { getStore, type ApprovalRecord, type DecisionRecord, type DeviceKeyRecord, type Outcome, type PasskeyRecord } from "@/lib/store";
 import { SignIn, SignOut } from "./SignIn";
 
@@ -143,12 +144,32 @@ function Approvers({ keys, passkeys }: { keys: DeviceKeyRecord[]; passkeys: Pass
   );
 }
 
+function Notice({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mx-auto max-w-xl px-4 py-12 sm:py-16">
+      <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
+      <p className="mt-3 leading-relaxed text-muted">{children}</p>
+    </div>
+  );
+}
+
 export default async function Dashboard() {
+  if (!sessionConfigured()) {
+    return <Notice title="Dashboard">Sign-in is turned off on this server because it has no session secret configured. Approvals on <code className="font-mono">/approve</code> still work.</Notice>;
+  }
   const jar = await cookies();
   const now = nowSeconds();
   const session = unsign(jar.get(SESSION_COOKIE)?.value, "session", Session, now);
+  let data: Awaited<ReturnType<typeof loadDashboard>> = null;
+  if (session) {
+    try {
+      data = await loadDashboard(getStore(), session);
+    } catch {
+      return <Notice title="Can't load your dashboard">The database is unreachable right now. Your daemon keeps enforcing decisions locally; try again in a minute.</Notice>;
+    }
+  }
 
-  if (!session) {
+  if (!session || !data) {
     return (
       <div className="mx-auto max-w-xl px-4 py-12 sm:py-16">
         <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
@@ -161,14 +182,7 @@ export default async function Dashboard() {
     );
   }
 
-  const store = getStore();
-  const [device, decisions, approvals, passkeys, keys] = await Promise.all([
-    store.getDevice(session.d),
-    store.listDecisions(session.d, 100),
-    store.listApprovals(session.d, 30),
-    store.listPasskeys(session.d),
-    store.listDeviceKeys(session.d),
-  ]);
+  const { device, decisions, approvals, passkeys, keys } = data;
   const blocked = decisions.filter((d) => BLOCKED.includes(d.outcome));
   const held = decisions.filter((d) => d.verdict === "hold").length;
 

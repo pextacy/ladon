@@ -3,7 +3,7 @@ import { nowSeconds } from "@/lib/approvals";
 import { handle, json, jsonError, rateLimited, readJson } from "@/lib/http";
 import { rpConfig } from "@/lib/origin";
 import { limiter } from "@/lib/ratelimit";
-import { CHALLENGE_COOKIE, cookieOptions, SESSION_COOKIE, SESSION_TTL_S, sign, SignInChallenge, unsign } from "@/lib/session";
+import { CHALLENGE_COOKIE, cookieOptions, SESSION_COOKIE, SESSION_TTL_S, sessionConfigured, sign, SignInChallenge, unsign } from "@/lib/session";
 import { getStore } from "@/lib/store";
 import { SessionVerifyBody } from "@/lib/validate";
 import { verifyAssertion } from "@/lib/webauthn";
@@ -11,9 +11,12 @@ import { verifyAssertion } from "@/lib/webauthn";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const SIGNIN_DISABLED = "dashboard sign-in is disabled: the server has no LADON_SESSION_SECRET configured";
+
 export const POST = handle(async (req: Request) => {
   const limited = rateLimited(limiter("auth"), req.headers);
   if (limited) return limited;
+  if (!sessionConfigured()) return jsonError(503, SIGNIN_DISABLED);
   const body = await readJson(req, SessionVerifyBody, 32 * 1024);
   if (!body.ok) return body.response;
   const jar = await cookies();

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { normalizePypiName } from "../parse/command.js";
 import { maxSatisfyingPep440, parsePep440Specifier } from "../parse/pep440.js";
 import { cached, TTL, type Cache } from "./cache.js";
-import { fetchBytes, fetchJson, type HttpOptions } from "./http.js";
+import { fetchBytes, fetchJson, SourceError, type HttpOptions } from "./http.js";
 
 const File = z.object({
   filename: z.string(),
@@ -189,7 +189,10 @@ export function pypiSource(opts: PypiSourceOptions = {}): PypiSource {
     project: (name) =>
       cached(opts.cache, `pypi:pj2:${index}:${normalizePypiName(name)}`, TTL.metadata, async () => {
         const raw = await fetchJson("PyPI", `${index}pypi/${normalizePypiName(name)}/json`, z.unknown(), opts);
-        return raw === null ? null : compactPypi(raw);
+        if (raw === null) return null;
+        const info = compactPypi(raw);
+        if (info === null) throw new SourceError("PyPI", `${new URL(index).host} returned unreadable project data for ${name}`);
+        return info;
       }),
     weeklyDownloads: (name) =>
       cached(opts.cache, `pypi:dl:${normalizePypiName(name)}`, TTL.downloads, async () => {

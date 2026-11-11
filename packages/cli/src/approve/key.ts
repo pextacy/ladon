@@ -13,7 +13,7 @@ export const defaultOpener: Opener = async () => {
   return openSerial(path);
 };
 
-function waitFor<T>(link: SerialLink, match: (msg: unknown) => T | undefined, ms: number, signal?: AbortSignal): Promise<T> {
+function waitFor<T>(link: SerialLink, match: (msg: unknown) => T | undefined, ms: number, signal?: AbortSignal, forId?: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const done = (fn: () => void) => {
       clearTimeout(timer);
@@ -31,11 +31,18 @@ function waitFor<T>(link: SerialLink, match: (msg: unknown) => T | undefined, ms
       }
       const m = match(msg);
       if (m !== undefined) done(() => resolve(m));
-      else if (typeof msg === "object" && msg && (msg as { t?: string }).t === "err") done(() => reject(new Error(`Key error: ${String((msg as { msg?: unknown }).msg)}`)));
+      else if (isErrFor(msg, forId)) done(() => reject(new Error(`Key error: ${String((msg as { msg?: unknown }).msg)}`)));
     });
     const timer = setTimeout(() => done(() => reject(new Error("Key did not answer"))), ms);
     signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+/** An `err` line ends the wait unless it names a different request (a stale reply, e.g. "busy" for an old one). */
+function isErrFor(msg: unknown, forId: string | undefined): boolean {
+  if (typeof msg !== "object" || !msg || (msg as { t?: unknown }).t !== "err") return false;
+  const id = (msg as { id?: unknown }).id;
+  return forId === undefined || id === undefined || id === forId;
 }
 
 export async function keyHello(link: SerialLink): Promise<KeyHello> {
@@ -95,7 +102,7 @@ export class KeyBridge implements Approver {
     const resP = waitFor(link, (m) => {
       const r = KeyResponse.safeParse(m);
       return r.success && r.data.id === req.id ? r.data : undefined;
-    }, ms, signal);
+    }, ms, signal, req.id);
     try {
       await link.write(JSON.stringify({ t: "time", now: Math.floor(Date.now() / 1000) }));
       await link.write(JSON.stringify(msg));

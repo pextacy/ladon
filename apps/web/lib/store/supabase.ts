@@ -195,11 +195,18 @@ export class SupabaseStore implements Store {
     );
   }
   async setAtlasRegistered(ecosystem: Ecosystem, name: string, registeredAt: string | null, checkedAt: string) {
+    // Same semantics as MemoryStore: last_checked always moves, registered becomes true, and the
+    // first registered_at wins (never overwritten). Previously a row that already had registered_at
+    // got neither last_checked nor registered updated.
     const upd: Record<string, unknown> = { last_checked: checkedAt };
-    if (registeredAt) Object.assign(upd, { registered: true, registered_at: registeredAt });
-    let q = this.db.from("atlas_names").update(upd).eq("ecosystem", ecosystem).eq("name", name);
-    if (registeredAt) q = q.is("registered_at", null);
-    check(await q, "atlas registered");
+    if (registeredAt) upd.registered = true;
+    check(await this.db.from("atlas_names").update(upd).eq("ecosystem", ecosystem).eq("name", name), "atlas registered");
+    if (registeredAt) {
+      check(
+        await this.db.from("atlas_names").update({ registered_at: registeredAt }).eq("ecosystem", ecosystem).eq("name", name).is("registered_at", null),
+        "atlas registered_at",
+      );
+    }
   }
   async listAtlasUnregistered(limit: number) {
     const rows = check(

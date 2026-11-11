@@ -2,6 +2,8 @@ import { appendFileSync, existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import {
+  isDynamicWord,
+  STDIN_ARGS,
   agentMessage,
   applyIntent,
   buildIntentInput,
@@ -166,6 +168,9 @@ export function targetsFor(p: ParsedInstall, cwd: string, lock: LockfileIndex): 
   const targets = [...p.targets];
   if (p.ecosystem === "pypi") {
     for (const d of p.projectDirs ?? []) {
+      // the parser lists a local project as unverifiable; here its manifest replaces that verdict
+      const i = unverifiable.indexOf(d);
+      if (i >= 0) unverifiable.splice(i, 1);
       const r = localProjectTargets(d, cwd);
       targets.push(...r.targets);
       unverifiable.push(...r.unverifiable);
@@ -217,12 +222,22 @@ export function targetsFor(p: ParsedInstall, cwd: string, lock: LockfileIndex): 
   return { targets, unverifiable };
 }
 
-function unverifiableReport(spec: string, ecosystem: "npm" | "pypi", now: Date): Report {
+/**
+ * A URL / git / path spec is a known thing the human can look at → warn. A package name that only exists at
+ * run time (`$PKG`, `$(…)`, xargs/stdin, an npmrc passed with --userconfig) can't be checked at all → hold
+ * (fail closed).
+ */
+export function unverifiableReport(spec: string, ecosystem: "npm" | "pypi", now: Date): Report {
+  const dynamic = spec === STDIN_ARGS || isDynamicWord(spec) || /^--(user|global)config /.test(spec);
+  const weight = dynamic ? 60 : 35;
+  const detail = dynamic
+    ? `the package is only known at run time (${spec.slice(0, 60)}) — Ladon cannot check it`
+    : "installs from a URL, git repo or local path — Ladon cannot verify it";
   return {
     target: { ecosystem, name: spec.slice(0, 120) },
-    score: 35,
-    verdict: "warn",
-    hits: [{ id: "G01", name: "non_registry_source", weight: 35, override: false, detail: "installs from a URL, git repo or local path — Ladon cannot verify it" }],
+    score: weight,
+    verdict: dynamic ? "hold" : "warn",
+    hits: [{ id: "G01", name: "non_registry_source", weight, override: false, detail }],
     evidence: { ecosystem, name: spec, exists: null, lockfile: { present: false }, errors: [], now: now.toISOString() },
     durationMs: 0,
   };
@@ -362,7 +377,9 @@ export async function gate(input: GateInput, env: GateEnv): Promise<GateResult> 
     if (worst.version) req.version = worst.version;
     if (intent && intent.drift !== "none") req.intent = { drift: intent.drift, reason: intent.reason };
     input.onStatus?.(display);
-    const ask = () => requestApproval(env.approvers, req, input.onStatus);
+    // The expiry starts when this request actually reaches the approver (after queueing behind another
+    // approval), otherwise a queued request could expire before the human ever sees it.
+    const ask = () => requestApproval(env.approvers, { ...req, exp: Math.floor(Date.now() / 1000) + cfg.approvalTimeoutSeconds }, input.onStatus);
     approval = await (env.approvalLock ? env.approvalLock(ask) : ask());
     if (approval.kind === "approved") {
       decision = "allow";

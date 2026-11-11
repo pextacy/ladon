@@ -47,6 +47,19 @@ describe("request validation", () => {
     for (const f of ["Cargo.toml", "Pipfile.lock", "package.json.bak", "setup.py"]) expect(ManifestBody.safeParse({ filename: f, content: "" }).success).toBe(false);
   });
 
+  it("truncates long rule details instead of rejecting the daemon's request", () => {
+    // core's intent detail: "task mismatch — " + reason (≤160) + " (likely from an instruction file)" ≈ 210 chars
+    const long = `task mismatch — ${"r".repeat(160)} (likely from an instruction file)`;
+    expect(long.length).toBeGreaterThan(200);
+    const a = CreateApprovalBody.parse({ ...approval, reasons: [long], intent: { drift: "strong", reason: "x".repeat(300) } });
+    expect(a.reasons[0]).toHaveLength(200);
+    expect(a.reasons[0]!.endsWith("…")).toBe(true);
+    expect(a.intent?.reason).toHaveLength(240);
+    const d = DecisionBody.parse({ ts: "2026-11-10T10:00:00Z", ecosystem: "npm", package: "x", verdict: "hold", score: 90, reasons: [long], outcome: "blocked" });
+    expect(d.reasons[0]).toHaveLength(200);
+    expect(CreateApprovalBody.parse({ ...approval, reasons: ["short"] }).reasons).toEqual(["short"]);
+  });
+
   it("caps manifest size", () => {
     expect(ManifestBody.safeParse({ filename: "package.json", content: "x".repeat(200 * 1024 + 1) }).success).toBe(false);
   });

@@ -7,7 +7,7 @@ import { buildTopList, keySignedMessage, type CheckDeps, type NpmPackageInfo } f
 import { allowlistHash, allowTarget, exactVersion, verifiedAllowlist, verifyEntry } from "./allowlist.js";
 import { LADON_HOME, loadConfig, loadState, saveConfig, saveState, type AllowlistEntry, type Config } from "./config.js";
 import { gate } from "./gate.js";
-import { main } from "./index.js";
+import { main } from "./main.js";
 
 // own LADON_HOME: these tests pin/unpin a Key, which must not race other test files
 await vi.hoisted(async () => {

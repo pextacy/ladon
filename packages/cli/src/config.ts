@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -72,32 +72,49 @@ export const State = z.object({
 });
 export type State = z.infer<typeof State>;
 
+/** Missing file → `{}` (defaults); present but not JSON → `null` (fails schema, treated as corrupt). */
 function readJson(path: string): unknown {
+  if (!existsSync(path)) return {};
   try {
     return JSON.parse(readFileSync(path, "utf8"));
   } catch {
-    return {};
+    return null;
   }
 }
 
 function writeJsonAtomic(path: string, value: unknown) {
   mkdirSync(LADON_HOME, { recursive: true, mode: 0o700 });
-  const tmp = `${path}.${process.pid}.tmp`;
+  const tmp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
   renameSync(tmp, path);
 }
 
 export function loadConfig(): Config {
   const parsed = Config.safeParse(readJson(PATHS.config));
+  if (!parsed.success) preserveCorrupt(PATHS.config);
   const cfg = parsed.success ? parsed.data : Config.parse({});
   if (process.env.LADON_WEB_URL) cfg.webUrl = process.env.LADON_WEB_URL;
   return cfg;
+}
+/**
+ * A config/state file that exists but doesn't parse falls back to defaults (fail closed: no approvers →
+ * nothing can be approved). Keep a copy first, so the next save doesn't silently destroy the pairing.
+ */
+function preserveCorrupt(path: string) {
+  try {
+    if (!existsSync(path)) return;
+    const copy = `${path}.corrupt`;
+    if (!existsSync(copy)) copyFileSync(path, copy);
+  } catch {
+    // best effort
+  }
 }
 export function saveConfig(cfg: Config) {
   writeJsonAtomic(PATHS.config, cfg);
 }
 export function loadState(): State {
   const parsed = State.safeParse(readJson(PATHS.state));
+  if (!parsed.success) preserveCorrupt(PATHS.state);
   return parsed.success ? parsed.data : State.parse({});
 }
 export function saveState(s: State) {
@@ -105,10 +122,37 @@ export function saveState(s: State) {
   writeJsonAtomic(PATHS.state, s);
 }
 
+/**
+ * Shared secret between the hook/shim clients and the daemon. Created atomically (temp file + link, which
+ * fails if another process won the race) so a concurrent reader never sees a half-written or empty file —
+ * an empty token would make the daemon accept requests with no token at all.
+ */
 export function daemonToken(): string {
-  if (!existsSync(PATHS.daemonToken)) {
-    mkdirSync(LADON_HOME, { recursive: true, mode: 0o700 });
-    writeFileSync(PATHS.daemonToken, randomBytes(24).toString("base64url"), { mode: 0o600 });
+  const read = () => {
+    try {
+      return readFileSync(PATHS.daemonToken, "utf8").trim();
+    } catch {
+      return "";
+    }
+  };
+  let tok = read();
+  if (tok.length >= 16) return tok;
+  mkdirSync(LADON_HOME, { recursive: true, mode: 0o700 });
+  const tmp = `${PATHS.daemonToken}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  writeFileSync(tmp, randomBytes(24).toString("base64url"), { mode: 0o600 });
+  try {
+    if (existsSync(PATHS.daemonToken) && read().length < 16) unlinkSync(PATHS.daemonToken); // empty / truncated file
+    linkSync(tmp, PATHS.daemonToken); // atomic: EEXIST if another process created it first
+  } catch {
+    /* lost the race — use the winner's token */
+  } finally {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* already gone */
+    }
   }
-  return readFileSync(PATHS.daemonToken, "utf8").trim();
+  tok = read();
+  if (tok.length < 16) throw new Error(`cannot create the daemon token at ${PATHS.daemonToken}`);
+  return tok;
 }

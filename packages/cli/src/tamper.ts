@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { LADON_HOME } from "./config.js";
 
 /**
@@ -12,28 +13,61 @@ import { LADON_HOME } from "./config.js";
 const home = homedir();
 const ladonHome = resolve(LADON_HOME);
 
-const PROTECTED_FILES = [/\/\.claude\/settings(\.local)?\.json$/, /\/\.cursor\/hooks\.json$/, /\/\.claude\.json$/, /\/\.codex\/(hooks\.json|config\.toml)$/];
+/** macOS (APFS/HFS+) and Windows file systems are case-insensitive by default: `~/.LADON` is `~/.ladon`. */
+const FOLD = process.platform === "darwin" || process.platform === "win32";
+const fold = (p: string) => (FOLD ? p.toLowerCase() : p);
+
+/** Resolve symlinks of the longest existing prefix (the file itself may not exist yet, e.g. Write). */
+function realish(abs: string): string {
+  let head = abs;
+  const tail: string[] = [];
+  for (let i = 0; i < 64; i++) {
+    try {
+      return join(realpathSync(head), ...tail.reverse());
+    } catch {
+      const up = dirname(head);
+      if (up === head) break;
+      tail.push(basename(head));
+      head = up;
+    }
+  }
+  return abs;
+}
+
+const LADON_HOMES = [...new Set([ladonHome, realish(ladonHome)].map(fold))];
+const PROTECTED_FILES = [/\/\.claude\/settings(\.local)?\.json$/i, /\/\.cursor\/hooks\.json$/i, /\/\.claude\.json$/i, /\/\.codex\/(hooks\.json|config\.toml)$/i];
 
 function expand(p: string, cwd: string): string {
-  return resolve(cwd, p.replace(/^~(?=\/|$)/, home));
+  return resolve(cwd, p.replace(/^~(?=\/|$)/, home).replace(/^\$\{?HOME\}?(?=\/|$)/, home));
 }
 
 export function protectedPath(p: string, cwd: string): string | null {
   const abs = expand(p, cwd);
-  if (abs === ladonHome || abs.startsWith(ladonHome + "/")) return "Ladon's configuration and approval state";
-  if (PROTECTED_FILES.some((re) => re.test(abs))) return "AI-tool hook configuration";
+  for (const cand of new Set([abs, realish(abs)])) {
+    const c = fold(cand);
+    if (LADON_HOMES.some((h) => c === h || c.startsWith(h + "/"))) return "Ladon's configuration and approval state";
+    if (PROTECTED_FILES.some((re) => re.test(cand))) return "AI-tool hook configuration";
+  }
   return null;
 }
 
-const SENSITIVE_SUB = /\b(?:ladon|index\.js)['"]?\s+(?:init|key\s+pair|passkey\s+pair|shim\s+uninstall|config)\b/;
-const WRITEISH = /(>|\btee\b|\bsed\s+-i|\bmv\b|\bcp\b|\brm\b|\bln\b|\bchmod\b|\btruncate\b|\bjq\b|\bpython3?\b|\bnode\s+-e|\bperl\b|\bdd\b|\binstall\b|\bunlink\b|\bopen\(|writeFile)/;
+const SENSITIVE_SUB = /\b(?:ladon|index\.js)['"]?\s+(?:init|key\s+pair|passkey\s+pair|shim\s+uninstall|config)\b/i;
+const WRITEISH =
+  /(>|\btee\b|\bg?sed\b[^|;&]*\s-[a-zA-Z]*i|\bmv\b|\bcp\b|\brm\b|\bln\b|\bchmod\b|\btruncate\b|\bjq\b|\bpython[\d.]*\b|\b(?:node|bun|deno)\b[^|;&]*\s(?:-e|-p|--eval|--print|eval)\b|\bperl\b|\bruby\b|\bphp\b|\bawk\b|\bgawk\b|\bosascript\b|\bdd\b|\binstall\b|\bunlink\b|\brsync\b|\bditto\b|\btar\b|\bunzip\b|\bcurl\b|\bwget\b|\bgit\s+(?:checkout|restore|apply|stash|reset)\b|\b(?:vi|vim|nvim|ex|ed|nano|emacs)\b|\bopen\(|writeFile)/i;
+
+/** `.ladon` as a path component anywhere: `~/.ladon`, `"$HOME"/.ladon`, `cd ~ && rm -rf .ladon`, `~/./.ladon`. */
+const LADON_DIR = /(?:^|[^\w.-])\.ladon(?![\w.-])/i;
 
 export function tamperReasonBash(command: string): string | null {
-  const ladonRef = command.includes(ladonHome) || /~\/\.ladon\b|\$HOME\/\.ladon\b|\$\{HOME\}\/\.ladon\b|\/\.ladon\//.test(command) || /\bLADON_HOME=/.test(command);
+  const ladonRef =
+    LADON_HOMES.some((h) => fold(command).includes(h)) ||
+    command.includes(ladonHome) ||
+    LADON_DIR.test(command) ||
+    /\bLADON_HOME\s*=/i.test(command);
   if (ladonRef) return "touches Ladon's configuration (~/.ladon)";
   if (SENSITIVE_SUB.test(command)) return "changes who can approve installs (pairing / init / removing shims)";
-  if (/\.claude\/settings(\.local)?\.json|\.cursor\/hooks\.json|\.claude\.json|\.codex\/(hooks\.json|config\.toml)/.test(command) && WRITEISH.test(command)) return "modifies AI-tool hook configuration";
-  if (/\bLADON_(?:DAEMON_PORT|KEY_PORT|WEB_URL)=/.test(command)) return "redirects Ladon to a different daemon / key / server";
+  if (/\.claude\/settings(\.local)?\.json|\.cursor\/hooks\.json|\.claude\.json|\.codex\/(hooks\.json|config\.toml)/i.test(command) && WRITEISH.test(command)) return "modifies AI-tool hook configuration";
+  if (/\bLADON_(?:DAEMON_PORT|KEY_PORT|WEB_URL)\s*=/i.test(command)) return "redirects Ladon to a different daemon / key / server";
   return null;
 }
 

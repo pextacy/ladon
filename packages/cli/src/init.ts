@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { keyFingerprint } from "@ladon/core";
@@ -14,49 +14,85 @@ import { checkWatched } from "./watch.js";
 
 const cli = (sub: string) => `${shq(process.execPath)} ${shq(CLI_ENTRY)} ${sub}`;
 
-type HookEntry = { matcher?: string; hooks: { type: "command"; command: string; timeout?: number }[] };
+type HookEntry = { matcher?: string; hooks?: { type?: string; command?: string; timeout?: number }[] };
 
-/** Add Ladon's PreToolUse(Bash) + SessionStart hooks to a Claude Code settings file (idempotent, backed up). */
-export function installClaudeHooks(settingsPath: string): "added" | "present" {
+const PRE_MATCHER = "Bash|Edit|Write|MultiEdit|NotebookEdit";
+const OUR_HOOKS = [
+  { event: "PreToolUse", sub: "hook claude-pre-tool-use", timeout: 150, matcher: PRE_MATCHER },
+  { event: "SessionStart", sub: "hook claude-session-start", timeout: 20 },
+] as const;
+
+/**
+ * Add Ladon's PreToolUse + SessionStart hooks to a Claude Code settings file. Idempotent; existing Ladon
+ * entries are refreshed (a hook pointing at a moved/old CLI path would just fail — and a failing hook
+ * lets the tool call through). Other settings and hooks are left untouched; a backup is written only
+ * when the file actually changes.
+ */
+export function installClaudeHooks(settingsPath: string, cliCmd: (sub: string) => string = cli): "added" | "present" {
   let settings: { hooks?: Record<string, HookEntry[]> } & Record<string, unknown> = {};
-  if (existsSync(settingsPath)) {
-    settings = JSON.parse(readFileSync(settingsPath, "utf8")) as typeof settings;
-    copyFileSync(settingsPath, `${settingsPath}.ladon-backup`);
+  const before = existsSync(settingsPath) ? readFileSync(settingsPath, "utf8") : null;
+  if (before !== null && before.trim() !== "") settings = JSON.parse(before) as typeof settings;
+  if (typeof settings.hooks !== "object" || settings.hooks === null || Array.isArray(settings.hooks)) settings.hooks = {};
+  const hooks = settings.hooks;
+  let changed = false;
+  for (const o of OUR_HOOKS) {
+    const list = Array.isArray(hooks[o.event]) ? hooks[o.event]! : (hooks[o.event] = []);
+    const want = cliCmd(o.sub);
+    let found = false;
+    for (const e of list) {
+      for (const h of Array.isArray(e?.hooks) ? e.hooks : []) {
+        if (typeof h?.command !== "string" || !h.command.includes(o.sub)) continue;
+        found = true;
+        if (h.command !== want || h.timeout !== o.timeout || h.type !== "command") {
+          h.type = "command";
+          h.command = want;
+          h.timeout = o.timeout;
+          changed = true;
+        }
+        if ("matcher" in o && e.matcher !== o.matcher) {
+          e.matcher = o.matcher; // upgrade older installs (Bash-only matcher)
+          changed = true;
+        }
+      }
+    }
+    if (!found) {
+      list.push({ ...("matcher" in o ? { matcher: o.matcher } : {}), hooks: [{ type: "command", command: want, timeout: o.timeout }] });
+      changed = true;
+    }
   }
-  settings.hooks ??= {};
-  const has = (event: string) => (settings.hooks![event] ?? []).some((e) => e.hooks?.some((h) => h.command.includes("hook claude-")));
-  const MATCHER = "Bash|Edit|Write|MultiEdit|NotebookEdit";
-  const ours = (settings.hooks.PreToolUse ?? []).find((e) => e.hooks?.some((h) => h.command.includes("hook claude-pre-tool-use")));
-  if (ours && ours.matcher !== MATCHER) ours.matcher = MATCHER; // upgrade older installs
-  else if (has("PreToolUse") && has("SessionStart")) return "present";
-  if (!has("PreToolUse")) (settings.hooks.PreToolUse ??= []).push({ matcher: MATCHER, hooks: [{ type: "command", command: cli("hook claude-pre-tool-use"), timeout: 150 }] });
-  if (!has("SessionStart")) (settings.hooks.SessionStart ??= []).push({ hooks: [{ type: "command", command: cli("hook claude-session-start"), timeout: 20 }] });
+  if (!changed) return "present";
   mkdirSync(dirname(settingsPath), { recursive: true });
+  if (before !== null) writeFileSync(`${settingsPath}.ladon-backup`, before);
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
   return "added";
 }
 
 /** Cursor hooks.json: beforeShellExecution (gate) + beforeSubmitPrompt (remember the prompt for intent drift). */
-export function installCursorHooks(path = join(homedir(), ".cursor", "hooks.json")): "added" | "present" {
-  let cfg: { version?: number; hooks?: Record<string, { command: string }[]> } = { version: 1, hooks: {} };
-  if (existsSync(path)) {
-    cfg = JSON.parse(readFileSync(path, "utf8")) as typeof cfg;
-    copyFileSync(path, `${path}.ladon-backup`);
-  }
-  cfg.hooks ??= {};
-  const wanted: [event: string, sub: string, legacy?: RegExp][] = [
-    ["beforeShellExecution", "hook cursor-before-shell", /hook cursor(?:\s|$|')/],
-    ["beforeSubmitPrompt", "hook cursor-before-submit-prompt"],
+export function installCursorHooks(path = join(homedir(), ".cursor", "hooks.json"), cliCmd: (sub: string) => string = cli): "added" | "present" {
+  let cfg: { version?: number; hooks?: Record<string, { command?: string }[]> } = { version: 1, hooks: {} };
+  const before = existsSync(path) ? readFileSync(path, "utf8") : null;
+  if (before !== null && before.trim() !== "") cfg = JSON.parse(before) as typeof cfg;
+  cfg.version ??= 1;
+  if (typeof cfg.hooks !== "object" || cfg.hooks === null || Array.isArray(cfg.hooks)) cfg.hooks = {};
+  const hooks = cfg.hooks;
+  // "hook cursor" (alias of cursor-before-shell) is what the fail-closed entry point recognises
+  const wanted: [event: string, sub: string, ours: RegExp][] = [
+    ["beforeShellExecution", "hook cursor", /hook cursor(?:-before-shell)?(?=\s|$|["'])/],
+    ["beforeSubmitPrompt", "hook cursor-before-submit-prompt", /hook cursor-before-submit-prompt(?=\s|$|["'])/],
   ];
   let changed = false;
-  for (const [event, sub, legacy] of wanted) {
-    const list = (cfg.hooks[event] ??= []);
-    if (list.some((h) => typeof h.command === "string" && (h.command.includes(sub) || (legacy?.test(h.command) ?? false)))) continue;
-    list.push({ command: cli(sub) });
+  for (const [event, sub, mine] of wanted) {
+    const list = Array.isArray(hooks[event]) ? hooks[event] : (hooks[event] = []);
+    const want = cliCmd(sub);
+    const ours = list.filter((h) => typeof h?.command === "string" && mine.test(h.command));
+    if (ours.length > 0 && ours.every((h) => h.command === want)) continue;
+    for (const h of ours) h.command = want;
+    if (ours.length === 0) list.push({ command: want });
     changed = true;
   }
   if (!changed) return "present";
   mkdirSync(dirname(path), { recursive: true });
+  if (before !== null) writeFileSync(`${path}.ladon-backup`, before);
   writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
   return "added";
 }
@@ -75,17 +111,16 @@ export function installCodexHooks(dir = codexHome()): "added" | "present" {
   if (existsSync(toml) && readFileSync(toml, "utf8").includes("hook codex-pre-tool-use")) return "present";
   type CodexHook = { matcher?: string; hooks: { type: "command"; command: string; timeout?: number; statusMessage?: string }[] };
   let cfg: { hooks?: Record<string, CodexHook[]> } & Record<string, unknown> = {};
-  if (existsSync(path)) {
-    cfg = JSON.parse(readFileSync(path, "utf8")) as typeof cfg;
-    copyFileSync(path, `${path}.ladon-backup`);
-  }
-  cfg.hooks ??= {};
-  const list = (cfg.hooks.PreToolUse ??= []);
+  const before = existsSync(path) ? readFileSync(path, "utf8") : null;
+  if (before !== null && before.trim() !== "") cfg = JSON.parse(before) as typeof cfg;
+  if (typeof cfg.hooks !== "object" || cfg.hooks === null || Array.isArray(cfg.hooks)) cfg.hooks = {};
+  const list = Array.isArray(cfg.hooks.PreToolUse) ? cfg.hooks.PreToolUse : (cfg.hooks.PreToolUse = []);
   const ours = list.find((e) => e.hooks?.some((h) => typeof h.command === "string" && h.command.includes("hook codex-pre-tool-use")));
   if (ours && ours.matcher === CODEX_MATCHER) return "present";
   if (ours) ours.matcher = CODEX_MATCHER; // upgrade older installs
   else list.push({ matcher: CODEX_MATCHER, hooks: [{ type: "command", command: cli("hook codex-pre-tool-use"), timeout: 150, statusMessage: "Ladon: checking install" }] });
   mkdirSync(dirname(path), { recursive: true });
+  if (before !== null) writeFileSync(`${path}.ladon-backup`, before);
   writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
   return "added";
 }

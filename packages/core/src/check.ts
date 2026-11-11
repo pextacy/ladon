@@ -178,6 +178,8 @@ async function gatherNpm(ev: Evidence, target: InstallTarget, deps: CheckDeps, o
     regEv.previousVersion = prev.version;
     if (prev.publisher) regEv.previousPublisher = prev.publisher;
     regEv.previousProvenance = prev.provenance;
+    const pv = info.versions[prev.version];
+    if (pv) regEv.previousInstallScripts = installScriptsOf(pv.scripts ?? {});
   }
   if (v) regEv.provenance = v.provenance;
   if (v?.repositoryUrl) regEv.repositoryUrl = v.repositoryUrl;
@@ -188,7 +190,11 @@ async function gatherNpm(ev: Evidence, target: InstallTarget, deps: CheckDeps, o
   ev.registry = regEv;
 
   const hasScripts = Object.keys(regEv.installScripts).length > 0 || regEv.hasBindingGyp;
-  const analyze = (opts.analyzeScripts ?? true) && !!v?.tarball;
+  const wantAnalysis = opts.analyzeScripts ?? true;
+  const analyze = wantAnalysis && !!v?.tarball;
+  if (wantAnalysis && hasScripts && !v?.tarball) {
+    ev.errors.push({ source: "install-script analysis", message: "the registry lists no tarball for this version, so its install scripts could not be inspected", critical: true });
+  }
   const [dl, osv, atlas, repo, scripts] = await Promise.all([
     soft(ev, "npm downloads", false, deps.npm.weeklyDownloads(target.name)),
     soft(ev, "OSV", true, deps.osv.query("npm", target.name, version)),
@@ -201,9 +207,14 @@ async function gatherNpm(ev: Evidence, target: InstallTarget, deps: CheckDeps, o
           ev,
           "install-script analysis",
           hasScripts,
-          cached(deps.cache, `analysis:npm:${target.name}@${version}:v2`, TTL.analysis, async () => {
+          // keyed by the tarball's integrity/URL: the same name@version on another registry is a different file
+          cached(deps.cache, `analysis:npm:${target.name}@${version}:${v?.integrity ?? v?.tarball}:v3`, TTL.analysis, async () => {
             const tgz = await deps.npm.tarball(v!.tarball!, 8 * 1024 * 1024);
-            return tgz ? analyzeNpmTarball(regEv.installScripts, tgz, { packageName: target.name }) : null;
+            if (!tgz) {
+              if (hasScripts) throw new Error("install-script tarball not found (HTTP 404)");
+              return null;
+            }
+            return analyzeNpmTarball(regEv.installScripts, tgz, { packageName: target.name });
           }),
         )
       : Promise.resolve(undefined),
@@ -289,10 +300,12 @@ async function gatherPypi(ev: Evidence, target: InstallTarget, deps: CheckDeps, 
       ? soft(
           ev,
           "sdist build analysis",
-          false,
-          cached(deps.cache, `analysis:pypi:${target.name}@${version}:v2`, TTL.analysis, async () => {
+          // no wheel → pip builds the sdist, which runs its code: unanalysable means unverified (DOCS §2 E01)
+          true,
+          cached(deps.cache, `analysis:pypi:${target.name}@${version}:${rel.sdistUrl}:v3`, TTL.analysis, async () => {
             const tgz = await deps.pypi.sdist(rel.sdistUrl!, 8 * 1024 * 1024);
-            return tgz ? analyzeSdist(tgz) : null;
+            if (!tgz) throw new Error("sdist not found (HTTP 404)");
+            return analyzeSdist(tgz);
           }),
         )
       : Promise.resolve(undefined),

@@ -216,13 +216,26 @@ function loadSnap(): Snapshot {
  * so a malicious hook can't hide by mentioning "ladon".
  */
 const CLI_PATH = fileURLToPath(new URL("./index.js", import.meta.url));
-export function isOwnHook(item: string, cliPath = CLI_PATH): boolean {
+/** One line, no credentials: URL userinfo and query strings (MCP URLs often carry tokens) are dropped. */
+export function redactItem(item: string, max = 140): string {
+  const one = item.replace(/\s*\n\s*/g, " ⏎ ").replace(/(\w+:\/\/)[^/\s@]+@/g, "$1…@").replace(/(\w+:\/\/[^\s?#]+)[?#]\S*/g, "$1?…");
+  return one.length > max ? one.slice(0, max - 1) + "…" : one;
+}
+
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Exactly how init.ts writes a path: bare when safe, else single-quoted. */
+const quotedForms = (p: string) => [p, `'${p.replace(/'/g, `'\\''`)}'`];
+/** Every hook subcommand init.ts installs (Claude Code, Cursor, Codex). */
+const OWN_HOOKS = "claude-pre-tool-use|claude-session-start|cursor|cursor-before-shell|cursor-before-submit-prompt|codex-pre-tool-use";
+export function isOwnHook(item: string, cliPath = CLI_PATH, nodePath = process.execPath): boolean {
   const m = /^hook\|[A-Za-z]+(?:\([^)]*\))?: (.*)$/.exec(item);
   if (!m) return false;
   const cmd = m[1]!.trim();
-  const escaped = cliPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // any `ladon hook <subcommand>` of *this* install runs Ladon's own code (claude-pre-tool-use, cursor, …)
-  return new RegExp(`^'?[^\\s']*node'? '?${escaped}'? hook [a-z][a-z-]*$`).test(cmd);
+  // The interpreter must be exactly this Node binary (or a bare `node` from PATH) — not any file whose
+  // name merely ends in "node" (`/tmp/evilnode /…/index.js hook cursor` would otherwise be exempt).
+  const nodes = ["node", ...quotedForms(nodePath)].map(esc).join("|");
+  const clis = quotedForms(cliPath).map(esc).join("|");
+  return new RegExp(`^(?:${nodes}) (?:${clis}) hook (?:${OWN_HOOKS})$`).test(cmd);
 }
 
 /** Compare watched files with the baseline. First sight of a global file sets the baseline silently; project files with hooks/MCP alert on first sight (cloned-repo attack). */
@@ -230,13 +243,18 @@ function watchedFiles(cwd?: string): { p: string; global: boolean }[] {
   return [...GLOBAL_WATCHED.map((p) => ({ p, global: true })), ...(cwd ? projectFiles(cwd).map((p) => ({ p, global: false })) : [])];
 }
 
-function readItems(p: string): Item[] | null {
+/** All items in a watched file, Ladon's own hooks included; null when missing / unreadable. */
+function readAllItems(p: string): Item[] | null {
   if (!existsSync(p)) return null;
   try {
-    return extractItems(p, readFileSync(p, "utf8")).filter((i) => !isOwnHook(`${i.kind}|${i.item}`));
+    return extractItems(p, readFileSync(p, "utf8"));
   } catch {
     return null;
   }
+}
+
+function readItems(p: string): Item[] | null {
+  return readAllItems(p)?.filter((i) => !isOwnHook(`${i.kind}|${i.item}`)) ?? null;
 }
 
 export interface WatchedFile {
@@ -265,8 +283,22 @@ export function checkWatched(opts: { cwd?: string; update?: boolean } = {}): Wat
   const snap = loadSnap();
   const alerts: WatchAlert[] = [];
   for (const { p, global } of watchedFiles(opts.cwd)) {
-    const items = readItems(p);
-    if (!items) continue;
+    const ownKey = `${p}#ladon`;
+    // Ladon's own hook disappearing (an agent or tool "cleaning up" the config) silently turns the gate
+    // off, so it is an alert too.
+    const ownRemoved = () => {
+      if (!snap[ownKey]) return;
+      delete snap[ownKey];
+      alerts.push({ path: p, kind: "hook", item: "ladon", detail: `Ladon's own hook was removed from ${p.replace(home, "~")} — installs are no longer gated there. Run \`ladon init\` to restore it.` });
+    };
+    const all = readAllItems(p);
+    if (!all) {
+      if (!existsSync(p)) ownRemoved();
+      continue;
+    }
+    if (all.some((i) => isOwnHook(`${i.kind}|${i.item}`))) snap[ownKey] = ["present"];
+    else ownRemoved();
+    const items = all.filter((i) => !isOwnHook(`${i.kind}|${i.item}`));
     const keys = items.map((i) => `${i.kind}|${i.item}`);
     const before = snap[p];
     if (before === undefined && global) {
@@ -277,7 +309,7 @@ export function checkWatched(opts: { cwd?: string; update?: boolean } = {}): Wat
     for (const i of items) {
       if (prev.has(`${i.kind}|${i.item}`)) continue;
       const what = i.kind === "hook" ? "new hook" : i.kind === "mcp" ? "new MCP server" : "new auto-run task";
-      alerts.push({ path: p, kind: i.kind, item: i.item, detail: `${what} in ${p.replace(home, "~")}: ${i.item.slice(0, 140)}` });
+      alerts.push({ path: p, kind: i.kind, item: i.item, detail: `${what} in ${p.replace(home, "~")}: ${redactItem(i.item)}` });
     }
     snap[p] = keys;
   }
