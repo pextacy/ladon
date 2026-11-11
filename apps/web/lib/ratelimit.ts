@@ -52,3 +52,49 @@ export function limiter(name: "check" | "manifest" | "report" | "devices" | "aut
   const cfg = { check: [30, 60_000], manifest: [5, 60_000], report: [20, 60_000], devices: [10, 60_000], auth: [30, 60_000] } as const;
   return (all[name] ??= new RateLimiter(cfg[name][0], cfg[name][1]));
 }
+
+/** The part of the Store a shared limiter needs (lib/store/types.ts `rateTake`). */
+export interface RateStore {
+  readonly kind: "memory" | "supabase";
+  rateTake(bucket: string, limit: number, windowSeconds: number, cost: number): Promise<{ ok: boolean; used: number; resetAt: string }>;
+}
+
+/**
+ * Rate limit shared across server instances: a Postgres fixed-window counter (migration 0002,
+ * `rate_limit_take`) when Supabase is configured, else — or when the database call fails — the
+ * per-instance in-memory limiter. A database outage never takes the public checker down.
+ */
+export class SharedLimiter {
+  constructor(
+    readonly name: string,
+    private local: RateLimiter,
+    private store: () => RateStore | null,
+    private now: () => number = Date.now,
+  ) {}
+
+  get limit() {
+    return this.local.limit;
+  }
+
+  async take(key: string, cost = 1): Promise<RateResult & { shared: boolean }> {
+    const s = this.store();
+    if (s && s.kind === "supabase") {
+      try {
+        const r = await s.rateTake(`${this.name}:${key}`, this.local.limit, Math.max(1, Math.round(this.local.windowMs / 1000)), cost);
+        const retryAfter = Math.max(1, Math.ceil((Date.parse(r.resetAt) - this.now()) / 1000));
+        return { ok: r.ok, remaining: Math.max(0, this.local.limit - r.used), retryAfter, shared: true };
+      } catch {
+        /* fall back to the in-memory limiter */
+      }
+    }
+    return { ...this.local.take(key, cost), shared: false };
+  }
+}
+
+const gs = globalThis as unknown as { __ladonShared?: Record<string, SharedLimiter> };
+
+/** Shared limiters for the public checker endpoints. */
+export function sharedLimiter(name: "check" | "manifest", store: () => RateStore | null): SharedLimiter {
+  const all = (gs.__ladonShared ??= {});
+  return (all[name] ??= new SharedLimiter(name, limiter(name), store));
+}

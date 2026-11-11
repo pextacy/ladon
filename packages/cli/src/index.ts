@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import {
   checkPackage,
-  commandHash,
+  countedHits,
   createDeps,
   explainDeterministic,
   formatReport,
@@ -13,8 +13,12 @@ import {
   newRequestId,
   parseNpmSpec,
   parsePipSpec,
+  pkgLabel,
   type InstallTarget,
+  type Report,
 } from "@ladon/core";
+import { audit, fetchAtlasAlerts } from "./audit.js";
+import { allowlistHash, allowTarget, entryLabel, exactVersion, verifiedAllowlist } from "./allowlist.js";
 import { keyHello } from "./approve/key.js";
 import { requestApproval } from "./approve/index.js";
 import { serverPasskeys } from "./approve/passkey.js";
@@ -29,7 +33,7 @@ import { init, pairKey, registerDevice, waitForPasskey } from "./init.js";
 import { defaultApprovers, loadLadonEnv } from "./runtime.js";
 import { scanAll } from "./scan.js";
 import { installedShims, installShims, PATH_LINE, PY_SHIMS, shimExec, shimsActive, uninstallShims } from "./shim.js";
-import { checkWatched } from "./watch.js";
+import { checkWatched, listWatched } from "./watch.js";
 
 const HELP = `ladon ${LADON_VERSION} — a firewall between AI coding agents and package registries
 
@@ -37,13 +41,18 @@ const HELP = `ladon ${LADON_VERSION} — a firewall between AI coding agents and
                              install Claude Code (+ Cursor / Codex) hooks + shims, pair Key / passkey
   ladon check <pkg>[@v] [--pypi] [-v] [--json] [--registry URL]
                              verdict for one package
-  ladon scan                 scan instruction files (AGENTS.md, CLAUDE.md, …) here → repo → home
+  ladon scan                 scan instruction files (AGENTS.md, CLAUDE.md, …) here → repo → home,
+                             then list agent hooks / MCP servers / auto-run tasks (read-only)
+  ladon audit [--json]       check every lockfile dependency against Atlas alerts (hallucinated,
+                             then registered) and OSV malicious-package advisories; exit 1 on findings
   ladon watch                show new hooks / MCP servers in AI-tool configs since the baseline
   ladon status               what is installed, paired and running
   ladon log [-n 20]          recent decisions
   ladon key pair|status      pair the Ladon Key over USB
   ladon passkey pair|list    pair a phone/laptop passkey via the web app
-  ladon allow <pkg>          permanently allow a package — requires Key or passkey approval
+  ladon allow <pkg>[@1.2.3]  permanently allow a package (or one exact version) — requires Key or passkey approval
+  ladon allow --remove <pkg>[@v] | --list
+                             remove an entry (no approval needed — it only tightens) / show entries
   ladon shim install|uninstall|status
   ladon daemon               run the local service (127.0.0.1:${DAEMON_PORT}); started automatically
 
@@ -79,6 +88,24 @@ export function parseTarget(spec: string, pypi: boolean): InstallTarget | null {
   return r.target ?? null;
 }
 
+/** One-paragraph LLM explanation (same as the web checker) when LADON_AI=on and a key is set; else null. */
+async function explainWithAi(r: Report): Promise<string | null> {
+  loadLadonEnv();
+  const ai = await import("@ladon/core/ai").catch(() => null);
+  if (!ai || !ai.aiEnabled()) return null;
+  try {
+    const text = await ai.anthropicProvider({ timeoutMs: 8000 }).explain({
+      package: pkgLabel(r),
+      verdict: r.verdict,
+      score: r.score,
+      reasons: countedHits(r.hits).slice(0, 5).map((h) => h.detail),
+    });
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
 async function cmdCheck(args: string[]): Promise<number> {
   const pypi = flag(args, "--pypi");
   const verbose = flag(args, "-v") || flag(args, "--verbose");
@@ -102,7 +129,8 @@ async function cmdCheck(args: string[]): Promise<number> {
   } else {
     out(formatReport(r, { color: !!process.stdout.isTTY, verbose }));
     if (verbose) {
-      out(`\n${explainDeterministic(r)}`);
+      const ai = await explainWithAi(r);
+      out(`\n${ai ? `${ai}\n  (explanation written by AI from the evidence above; the verdict comes from the rules)` : explainDeterministic(r)}`);
       for (const e of r.evidence.errors) out(`  source problem: ${e.source}: ${e.message}`);
       out(`  (${r.durationMs} ms)`);
     }
@@ -111,19 +139,47 @@ async function cmdCheck(args: string[]): Promise<number> {
 }
 
 function cmdScan(): number {
-  const scans = scanAll(process.cwd());
-  if (scans.length === 0) {
-    out("✓ no agent instruction files found here, in the repo, or in your home directory");
-    return 0;
-  }
+  const cwd = process.cwd();
+  const scans = scanAll(cwd);
   let worst = 0;
+  if (scans.length === 0) out("✓ no agent instruction files found here, in the repo, or in your home directory");
   for (const s of scans) {
     const shape = s.risk === "high" ? "■" : s.risk === "medium" ? "▲" : "✓";
     out(`${shape} ${s.risk.toUpperCase().padEnd(6)} ${s.path.replace(homedir(), "~")}`);
     for (const f of s.findings) out(`    ${f.line ? `line ${f.line}: ` : ""}${f.detail}${f.excerpt ? `\n      ${f.excerpt}` : ""}`);
     worst = Math.max(worst, s.risk === "high" ? 2 : s.risk === "medium" ? 1 : 0);
   }
+  // Agent configs (read-only: the watch baseline is not updated — `ladon watch` does that).
+  const configs = listWatched(cwd);
+  out("\nAgent configs (hooks, MCP servers, auto-run tasks):");
+  if (configs.length === 0) out("  ✓ none found");
+  const kind = { hook: "hook", mcp: "MCP ", task: "auto" } as const;
+  for (const c of configs) {
+    const fresh = c.items.filter((i) => i.isNew).length;
+    out(`${fresh ? "▲" : "✓"} ${c.path.replace(homedir(), "~")}${fresh ? `  (${fresh} new since the last \`ladon watch\`)` : ""}`);
+    for (const i of c.items) out(`    ${i.isNew ? "NEW " : "    "}${kind[i.kind]}  ${i.item.slice(0, 160)}`);
+    if (fresh) worst = Math.max(worst, 1);
+  }
   return worst;
+}
+
+async function cmdAudit(args: string[]): Promise<number> {
+  const json = flag(args, "--json");
+  const cfg = loadConfig();
+  const deps = createDeps({ cacheDir: PATHS.cache, atlasUrl: cfg.webUrl });
+  const r = await audit(process.cwd(), { alerts: () => fetchAtlasAlerts(cfg.webUrl), osv: deps.osv });
+  if (json) {
+    out(JSON.stringify(r, null, 2));
+  } else if (r.files.length === 0) {
+    out("no lockfile here or up to the repo root (package-lock.json, pnpm-lock.yaml, yarn.lock, uv.lock, poetry.lock, pdm.lock, requirements.txt)");
+  } else {
+    out(`audited ${r.deps} locked dependencies in ${r.files.map((f) => f.replace(process.cwd() + "/", "")).join(", ")}`);
+    for (const f of r.findings) out(`■ ${f.ecosystem}:${f.name}${f.versions.length ? `@${f.versions.join(",")}` : ""}\n    ${f.detail}`);
+    for (const e of r.errors) out(`▲ incomplete: ${e}`);
+    if (r.findings.length === 0) out(r.errors.length ? "no findings in what could be checked" : "✓ no hallucinated-then-registered names and no known-malicious packages");
+  }
+  if (r.findings.length > 0) return 1;
+  return r.errors.length > 0 ? 2 : 0;
 }
 
 function cmdWatch(): number {
@@ -161,7 +217,23 @@ async function cmdStatus(): Promise<number> {
   out(`  passkeys           ${cfg.passkeys.length ? `✓ ${cfg.passkeys.length} pinned` : "✗ none"}`);
   out(`  web                ${cfg.webUrl}${cfg.device ? ` (device ${cfg.device.label})` : " (not registered)"}`);
   out(`  fail mode          ${cfg.failMode}; warn → ${cfg.onWarn}; atlas reports ${cfg.atlasReports ? "on" : "off"}`);
-  out(`  allowlist          ${st.allowlist.length} package(s)`);
+  const allow = await verifiedAllowlist(cfg, st);
+  const ignored = allow.rejected.filter((r) => r.entry.proof);
+  out(`  allowlist          ${allow.entries.length} verified entr${allow.entries.length === 1 ? "y" : "ies"}${ignored.length ? ` · ■ ${ignored.length} IGNORED (signature does not verify — ladon allow --list)` : ""}`);
+  // One-time migration: entries from before signed allowlists carry no proof. They are ignored by the
+  // gate; tell the human once and drop them so they can re-add them with an approval.
+  const legacy = allow.rejected.filter((r) => !r.entry.proof);
+  if (legacy.length > 0) {
+    out(`\n▲ ${legacy.length} allowlist entr${legacy.length === 1 ? "y was" : "ies were"} added before allowlists were signed and ${legacy.length === 1 ? "is" : "are"} no longer honoured:`);
+    for (const r of legacy) {
+      const [eco, ...rest] = r.entry.target.split(":");
+      out(`    ${entryLabel(r.entry)}  →  re-add with: ladon allow ${rest.join(":")}${r.entry.version ? `@${r.entry.version}` : ""}${eco === "pypi" ? " --pypi" : ""}`);
+    }
+    const fresh = loadState();
+    fresh.allowlist = fresh.allowlist.filter((e) => e.proof);
+    saveState(fresh);
+    out("  (removed from state.json; this notice is shown once)");
+  }
   return 0;
 }
 
@@ -230,35 +302,72 @@ async function cmdPasskey(args: string[]): Promise<number> {
 }
 
 async function cmdAllow(args: string[]): Promise<number> {
-  const target = args[0] ? parseTarget(args[0], flag(args, "--pypi")) : null;
+  const pypi = flag(args, "--pypi");
+  const list = flag(args, "--list");
+  const remove = flag(args, "--remove");
+  if (list) {
+    const cfg = loadConfig();
+    const v = await verifiedAllowlist(cfg, loadState());
+    if (v.entries.length + v.rejected.length === 0) out("allowlist is empty");
+    for (const e of v.entries) out(`  ✓ ${entryLabel(e).padEnd(40)} approved ${e.approvedAt.slice(0, 10)} via ${e.via === "key" ? "Ladon Key" : "passkey"}`);
+    for (const r of v.rejected) out(`  ■ ${entryLabel(r.entry).padEnd(40)} IGNORED — ${r.reason}`);
+    return 0;
+  }
+  const target = args[0] ? parseTarget(args[0], pypi) : null;
   if (!target) {
-    err("usage: ladon allow <pkg> [--pypi]");
+    err("usage: ladon allow <pkg>[@exact-version] [--pypi]\n       ladon allow --remove <pkg>[@version]\n       ladon allow --list");
     return 2;
   }
+  const key = allowTarget(target.ecosystem, target.name);
+  const version = exactVersion(target.versionSpec);
+  if (target.versionSpec && !version) {
+    err(`ladon: "${target.versionSpec}" is not an exact version — allow a single version like ${target.name}@1.2.3, or the name alone for every version`);
+    return 2;
+  }
+  if (remove) {
+    // Removing only tightens the gate, so it needs no approval.
+    const st = loadState();
+    const before = st.allowlist.length;
+    st.allowlist = st.allowlist.filter((a) => !(a.target === key && (!version || a.version === version)));
+    const n = before - st.allowlist.length;
+    if (n === 0) {
+      out(`${key}${version ? `@${version}` : ""} is not on the allowlist`);
+      return 1;
+    }
+    saveState(st);
+    out(`✓ removed ${n} allowlist entr${n === 1 ? "y" : "ies"} for ${key}${version ? `@${version}` : ""}`);
+    return 0;
+  }
   loadLadonEnv();
-  const key = `${target.ecosystem}:${target.name}`;
-  out(`Adding ${key} to the allowlist needs a human: approve on your Ladon Key or passkey.`);
+  const entry = { target: key, ...(version ? { version } : {}) };
+  const label = entryLabel(entry);
+  out(`Adding ${label} to the allowlist needs a human: approve on your Ladon Key or passkey.`);
   const req = {
     id: newRequestId(),
-    h: commandHash(`ladon allow ${key}`, process.cwd()),
+    h: allowlistHash(entry), // binds the exact entry; re-verified every time the allowlist is loaded
     n: newNonce(),
     exp: Math.floor(Date.now() / 1000) + 120,
-    pkg: `allowlist ${key}`,
+    pkg: `allowlist ${label}`,
     ecosystem: target.ecosystem,
     name: target.name,
+    ...(version ? { version } : {}),
     score: 0,
-    why: ["add to the permanent allowlist", "future installs skip checks"],
+    why: [version ? `allow only version ${version}` : "allow every version", "future installs skip checks"],
   };
   const o = await requestApproval(defaultApprovers(), req, out);
   if (o.kind !== "approved") {
     err(`■ not allowlisted: ${o.detail}`);
     return 1;
   }
+  if (!o.proof) {
+    err("■ not allowlisted: the approval carried no verifiable proof");
+    return 1;
+  }
   const st = loadState();
-  st.allowlist = st.allowlist.filter((a) => a.target !== key);
-  st.allowlist.push({ target: key, approvedAt: new Date().toISOString(), via: o.via });
+  st.allowlist = st.allowlist.filter((a) => !(a.target === key && a.version === entry.version));
+  st.allowlist.push({ ...entry, approvedAt: new Date().toISOString(), via: o.via, proof: o.proof });
   saveState(st);
-  out(`✓ ${key} allowlisted (${o.detail})`);
+  out(`✓ ${label} allowlisted (${o.detail})`);
   return 0;
 }
 
@@ -284,6 +393,8 @@ export async function main(argv: string[]): Promise<number> {
       return cmdScan();
     case "watch":
       return cmdWatch();
+    case "audit":
+      return cmdAudit(args);
     case "status":
       return cmdStatus();
     case "log":

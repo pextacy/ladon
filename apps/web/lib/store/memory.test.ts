@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MemoryStore } from "./memory";
+import { isAtlasAlert, MemoryStore } from "./memory";
 import { seedRecords } from "./index";
 import type { ApprovalRecord } from "./types";
 
@@ -90,5 +90,57 @@ describe("MemoryStore", () => {
     await s.putVerdict({ ecosystem: "npm", name: "a", version: "latest", evidence: { x: 1 }, score: 0, computedAt: "t" });
     expect((await s.getVerdict("npm", "a", "latest"))?.evidence).toEqual({ x: 1 });
     expect(await s.getVerdict("npm", "a", "1.0.0")).toBeNull();
+  });
+
+  it("atlas alerts: only names registered after first sight, newest first, filtered", async () => {
+    const s = new MemoryStore(seedRecords());
+    const obs = (name: string, eco: "npm" | "pypi" = "npm") => s.observeAtlasName({ ecosystem: eco, name, model: "m1", source: "probe", registered: false, at: "2026-11-01T00:00:00.000Z" });
+    await obs("taken-early");
+    await obs("taken-late");
+    await obs("py-taken", "pypi");
+    await obs("still-free");
+    await s.setAtlasRegistered("npm", "taken-early", "2026-11-03T00:00:00.000Z", "t");
+    await s.setAtlasRegistered("npm", "taken-late", "2026-11-09T00:00:00.000Z", "t");
+    await s.setAtlasRegistered("pypi", "py-taken", "2026-11-05T00:00:00.000Z", "t");
+    const all = await s.listAtlasAlerts({ limit: 50 });
+    expect(all.map((a) => a.name)).toEqual(["taken-late", "py-taken", "taken-early"]);
+    // the curated seed has registeredAt == firstSeen (no first sighting before registration) → not alerts
+    expect(all.every(isAtlasAlert)).toBe(true);
+    expect((await s.listAtlasAlerts({ limit: 50, ecosystem: "pypi" })).map((a) => a.name)).toEqual(["py-taken"]);
+    expect((await s.listAtlasAlerts({ limit: 50, since: "2026-11-04T00:00:00Z" })).map((a) => a.name)).toEqual(["taken-late", "py-taken"]);
+    expect(await s.listAtlasAlerts({ limit: 1 })).toHaveLength(1);
+  });
+
+  it("isAtlasAlert needs a registration strictly after first sight", () => {
+    const base = { firstSeen: "2026-11-01T00:00:00Z", registered: true };
+    expect(isAtlasAlert({ ...base, registeredAt: "2026-11-02T00:00:00Z" })).toBe(true);
+    expect(isAtlasAlert({ ...base, registeredAt: "2026-11-01T00:00:00Z" })).toBe(false);
+    expect(isAtlasAlert({ ...base, registeredAt: null })).toBe(false);
+    expect(isAtlasAlert({ ...base, registered: false, registeredAt: "2026-11-02T00:00:00Z" })).toBe(false);
+  });
+
+  it("device keys upsert per device and keep the first createdAt", async () => {
+    const s = new MemoryStore();
+    const k = { deviceId: "d1", publicKey: "a".repeat(64), fingerprint: "AAAAAAAA", label: "Key", createdAt: "2026-11-01T00:00:00Z" };
+    await s.addDeviceKey(k);
+    await s.addDeviceKey({ ...k, label: "renamed", createdAt: "2026-11-05T00:00:00Z" });
+    await s.addDeviceKey({ ...k, deviceId: "d2" });
+    const list = await s.listDeviceKeys("d1");
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ label: "renamed", createdAt: "2026-11-01T00:00:00Z" });
+    expect(await s.listDeviceKeys("d3")).toEqual([]);
+  });
+
+  it("rateTake is a fixed-window counter per bucket", async () => {
+    const s = new MemoryStore();
+    let t = 120_000;
+    s.now = () => t;
+    expect((await s.rateTake("check:ip", 3, 60, 2)).ok).toBe(true);
+    expect((await s.rateTake("check:ip", 3, 60, 2)).ok).toBe(false);
+    const r = await s.rateTake("check:ip", 3, 60, 1);
+    expect(r).toEqual({ ok: true, used: 3, resetAt: new Date(180_000).toISOString() });
+    expect((await s.rateTake("check:other", 3, 60, 1)).ok).toBe(true);
+    t = 180_000;
+    expect((await s.rateTake("check:ip", 3, 60, 3)).used).toBe(3);
   });
 });

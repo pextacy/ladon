@@ -120,6 +120,21 @@ Nightly (Supabase cron or GitHub Action): ~200 fixed coding prompts × N models 
 names → check registry existence → upsert `atlas_names`. Daily: re-check unregistered names; if newly
 registered → flag `registered_at` → R03 bonus kicks in. Cost-capped; prompts versioned in `/apps/web/atlas/prompts`.
 
+**Models and providers.** `LADON_PROBE_MODELS` is a comma list routed by prefix: a bare id
+(`claude-opus-5-5`) goes to Anthropic (`ANTHROPIC_API_KEY`, SDK structured output);
+`openai:<model>` goes to `OPENAI_API_KEY` at `OPENAI_BASE_URL` (default `https://api.openai.com/v1`, any
+OpenAI-compatible server works); `openrouter:<vendor>/<model>` goes to `OPENROUTER_API_KEY`. OpenAI-compatible
+calls request `response_format: json_schema` (falling back to `json_object` when a server rejects it) and the
+answer is validated with the same Zod schema. Models whose provider key is missing are skipped. The Atlas records
+the model id without the provider prefix. `LADON_PROBE_MAX_PROMPTS` caps the **total** calls of a run across all
+models (split evenly), so adding providers never raises the cost ceiling.
+
+**Alerts.** A name is an *alert* when it was registered after we first saw it hallucinated
+(`registered_at > first_seen`; view `atlas_alerts`, migration 0002). Read them at `GET /api/atlas/alerts`
+or subscribe to the Atom feed `/atlas/feed.xml`. When `ATLAS_ALERT_WEBHOOK_URL` is set, the re-check POSTs
+each newly registered name as JSON `{ text, content, ecosystem, name, registeredAt, models }` (`text` for Slack,
+`content` for Discord) with a 5 s timeout; a failing webhook is logged and never fails the run.
+
 ## 9. Setup
 
 ```bash

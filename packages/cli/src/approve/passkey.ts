@@ -14,6 +14,7 @@ export async function verifyPasskeyAssertion(
   req: PendingApproval,
   decision: "approve" | "reject",
   assertion: AuthenticationResponseJSON,
+  opts: { ignoreCounter?: boolean } = {},
 ): Promise<{ ok: true; credentialId: string; newCounter: number } | { ok: false; error: string }> {
   const pinned = cfg.passkeys.find((p) => p.credentialId === assertion.id);
   if (!pinned) return { ok: false, error: "assertion from a passkey that is not paired with this machine" };
@@ -24,7 +25,8 @@ export async function verifyPasskeyAssertion(
       expectedChallenge: passkeyChallenge(req, decision),
       expectedOrigin: origin,
       expectedRPID: new URL(cfg.webUrl).hostname,
-      credential: { id: pinned.credentialId, publicKey: new Uint8Array(Buffer.from(pinned.publicKey, "base64url")), counter: pinned.counter },
+      // ignoreCounter: re-verifying a stored proof (allowlist) — replay is prevented by the bound hash instead
+      credential: { id: pinned.credentialId, publicKey: new Uint8Array(Buffer.from(pinned.publicKey, "base64url")), counter: opts.ignoreCounter ? 0 : pinned.counter },
       requireUserVerification: true,
     });
     if (!v.verified) return { ok: false, error: "passkey assertion did not verify" };
@@ -80,9 +82,9 @@ export function passkeyApprover(): Approver {
         const fresh = loadConfig();
         fresh.passkeys = fresh.passkeys.map((p) => (p.credentialId === v.credentialId ? { ...p, counter: Math.max(p.counter, v.newCounter) } : p));
         saveConfig(fresh);
-        return decision === "approve"
-          ? { kind: "approved", via: "passkey", detail: "approved with passkey" }
-          : { kind: "rejected", via: "passkey", detail: "rejected with passkey" };
+        if (decision !== "approve") return { kind: "rejected", via: "passkey", detail: "rejected with passkey" };
+        const proof = { via: "passkey" as const, id: req.id, h: req.h, n: req.n, exp: req.exp, decision: "approve" as const, assertion: w.assertion };
+        return { kind: "approved", via: "passkey", detail: "approved with passkey", proof };
       }
       return { kind: "timeout", detail: "no passkey decision in time" };
     },

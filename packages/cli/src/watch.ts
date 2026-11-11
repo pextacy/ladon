@@ -21,6 +21,16 @@ export interface WatchAlert {
 type Snapshot = Record<string, string[]>;
 
 const home = homedir();
+
+/** VS Code user-settings folders (macOS, Linux, Windows) — only the ones that exist are read. */
+export function vscodeUserDirs(env: Record<string, string | undefined> = process.env, h = home): string[] {
+  return [
+    join(h, "Library", "Application Support", "Code", "User"),
+    join(h, ".config", "Code", "User"),
+    join(env.APPDATA ?? join(h, "AppData", "Roaming"), "Code", "User"),
+  ];
+}
+
 export const GLOBAL_WATCHED = [
   join(home, ".claude", "settings.json"),
   join(home, ".claude", "settings.local.json"),
@@ -29,9 +39,24 @@ export const GLOBAL_WATCHED = [
   join(home, ".cursor", "hooks.json"),
   join(home, ".codeium", "windsurf", "mcp_config.json"),
   join(home, ".codex", "config.toml"),
+  join(home, ".codex", "hooks.json"),
+  join(home, ".gemini", "settings.json"),
   join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json"),
+  ...vscodeUserDirs().flatMap((d) => [join(d, "mcp.json"), join(d, "tasks.json"), join(d, "settings.json")]),
 ];
-const PROJECT_WATCHED = [".claude/settings.json", ".claude/settings.local.json", ".mcp.json", ".cursor/mcp.json", ".cursor/hooks.json", ".vscode/tasks.json", ".vscode/mcp.json"];
+const PROJECT_WATCHED = [
+  ".claude/settings.json",
+  ".claude/settings.local.json",
+  ".mcp.json",
+  ".cursor/mcp.json",
+  ".cursor/hooks.json",
+  ".vscode/tasks.json",
+  ".vscode/mcp.json",
+  ".vscode/settings.json",
+  ".gemini/settings.json",
+  ".codex/config.toml",
+  ".codex/hooks.json",
+];
 
 function projectFiles(cwd: string): string[] {
   const out: string[] = [];
@@ -48,19 +73,101 @@ function projectFiles(cwd: string): string[] {
 
 const h = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 12);
 
-/** Security-relevant items in a config file, as stable strings. */
-export function extractItems(path: string, text: string): { kind: WatchAlert["kind"]; item: string }[] {
-  const items: { kind: WatchAlert["kind"]; item: string }[] = [];
-  if (path.endsWith(".toml")) {
-    for (const m of text.matchAll(/^\[mcp_servers\.([^\]]+)\][\s\S]*?command\s*=\s*"([^"]*)"/gm)) items.push({ kind: "mcp", item: `${m[1]}: ${m[2]}` });
-    return items;
+/** JSON with comments and trailing commas (VS Code's settings/tasks/mcp files) → plain JSON text. */
+export function stripJsonc(text: string): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (c === '"') {
+      const start = i;
+      for (i++; i < text.length && text[i] !== '"'; i++) if (text[i] === "\\") i++;
+      out += text.slice(start, i + 1);
+    } else if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      out += "\n";
+    } else if (c === "/" && text[i + 1] === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end < 0 ? text.length : end + 1;
+    } else out += c;
   }
+  return out.replace(/,(\s*[}\]])/g, "$1");
+}
+
+type Item = { kind: WatchAlert["kind"]; item: string };
+
+/** Quoted strings in a TOML value (`"a"`, `'b'`, arrays of them). */
+const tomlStrings = (v: string) => [...v.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map((m) => m[1] ?? m[2] ?? "");
+
+/** Codex config.toml: MCP servers, `notify` (runs a program on agent events) and `[hooks.*]` commands. */
+function tomlItems(text: string): Item[] {
+  const items: Item[] = [];
+  for (const m of text.matchAll(/^\[mcp_servers\.([^\]]+)\][\s\S]*?command\s*=\s*"([^"]*)"/gm)) items.push({ kind: "mcp", item: `${m[1]}: ${m[2]}` });
+  // split into [table] sections; "" = top level
+  const sections: { name: string; body: string }[] = [{ name: "", body: "" }];
+  for (const line of text.split(/\r?\n/)) {
+    const hdr = /^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/.exec(line);
+    if (hdr) sections.push({ name: hdr[1]!.replace(/["'\s]/g, ""), body: "" });
+    else sections[sections.length - 1]!.body += line.replace(/(^|\s)#.*$/, "") + "\n";
+  }
+  for (const { name, body } of sections) {
+    if (name === "") {
+      const n = /^\s*notify\s*=\s*(\[[^\]]*\])/m.exec(body);
+      if (n) items.push({ kind: "hook", item: `notify: ${tomlStrings(n[1]!).join(" ")}` });
+    }
+    if (name !== "hooks" && !name.startsWith("hooks.")) continue;
+    const event = name === "hooks" ? "" : name.slice(6);
+    // `command = "..."` / `command = [..]`, also inside inline tables of `Event = [{ command = ... }]`
+    for (const kv of body.matchAll(/^\s*([A-Za-z0-9_-]+)\s*=\s*([\s\S]*?)(?=^\s*[A-Za-z0-9_-]+\s*=|(?![\s\S]))/gm)) {
+      const key = kv[1]!;
+      const val = kv[2]!;
+      const ev = event || key;
+      if (key === "command") items.push({ kind: "hook", item: `${ev}: ${tomlStrings(val).join(" ")}` });
+      else for (const c of val.matchAll(/command\s*=\s*("(?:[^"\\]|\\.)*"|'[^']*'|\[[^\]]*\])/g)) items.push({ kind: "hook", item: `${ev}: ${tomlStrings(c[1]!).join(" ")}` });
+    }
+  }
+  return items;
+}
+
+/** VS Code settings that make an agent or the editor run commands without asking. */
+function vscodeSettingItems(obj: Record<string, unknown>): Item[] {
+  const items: Item[] = [];
+  const auto = obj["task.allowAutomaticTasks"];
+  if (auto === "on" || auto === true) items.push({ kind: "task", item: "task.allowAutomaticTasks = on (folder-open tasks run without asking)" });
+  for (const k of ["chat.tools.autoApprove", "chat.tools.global.autoApprove", "chat.agent.autoApprove", "github.copilot.chat.agent.autoApprove"]) {
+    if (obj[k] === true) items.push({ kind: "task", item: `${k} = true (agent tools run without asking)` });
+  }
+  for (const k of ["chat.tools.terminal.autoApprove", "chat.agent.terminal.autoApprove", "github.copilot.chat.agent.terminal.allowList"]) {
+    const v = obj[k];
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      for (const [pattern, ok] of Object.entries(v as Record<string, unknown>)) {
+        if (ok === true || (typeof ok === "object" && ok !== null && (ok as { approve?: unknown }).approve === true)) items.push({ kind: "task", item: `${k}: ${pattern} (terminal command auto-approved)` });
+      }
+    }
+  }
+  for (const [k, v] of Object.entries(obj)) {
+    if (/^terminal\.integrated\.automationProfile\./.test(k) && v && typeof v === "object") {
+      const p = v as { path?: unknown; args?: unknown };
+      items.push({ kind: "task", item: `${k}: ${[p.path, ...(Array.isArray(p.args) ? p.args : [])].filter((x) => typeof x === "string").join(" ")}` });
+    }
+  }
+  return items;
+}
+
+/** Security-relevant items in a config file, as stable strings. */
+export function extractItems(path: string, text: string): Item[] {
+  const items: Item[] = [];
+  if (path.endsWith(".toml")) return tomlItems(text);
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
-    return [{ kind: "hook", item: `unparseable file ${h(text)}` }];
+    try {
+      json = JSON.parse(stripJsonc(text));
+    } catch {
+      return [{ kind: "hook", item: `unparseable file ${h(text)}` }];
+    }
   }
+  if (!json || typeof json !== "object" || Array.isArray(json)) return items;
   const walkHooks = (hooks: unknown) => {
     if (!hooks || typeof hooks !== "object") return;
     for (const [event, list] of Object.entries(hooks as Record<string, unknown>)) {
@@ -81,6 +188,9 @@ export function extractItems(path: string, text: string): { kind: WatchAlert["ki
   const obj = json as Record<string, unknown>;
   walkHooks(obj.hooks);
   walkMcp(obj.mcpServers ?? obj.servers);
+  // VS Code settings.json can define MCP servers under "mcp": { "servers": … }
+  const mcp = obj.mcp as { servers?: unknown } | undefined;
+  if (mcp && typeof mcp === "object") walkMcp(mcp.servers);
   if (obj.projects && typeof obj.projects === "object") {
     for (const p of Object.values(obj.projects as Record<string, { mcpServers?: unknown }>)) walkMcp(p?.mcpServers);
   }
@@ -89,6 +199,7 @@ export function extractItems(path: string, text: string): { kind: WatchAlert["ki
       if (t.runOptions?.runOn === "folderOpen") items.push({ kind: "task", item: `${t.label ?? "task"} (runs on folder open): ${t.command ?? ""}` });
     }
   }
+  items.push(...vscodeSettingItems(obj));
   return items;
 }
 
@@ -110,23 +221,52 @@ export function isOwnHook(item: string, cliPath = CLI_PATH): boolean {
   if (!m) return false;
   const cmd = m[1]!.trim();
   const escaped = cliPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^'?[^\\s']*node'? '?${escaped}'? hook (claude-pre-tool-use|claude-session-start|cursor)$`).test(cmd);
+  // any `ladon hook <subcommand>` of *this* install runs Ladon's own code (claude-pre-tool-use, cursor, …)
+  return new RegExp(`^'?[^\\s']*node'? '?${escaped}'? hook [a-z][a-z-]*$`).test(cmd);
 }
 
 /** Compare watched files with the baseline. First sight of a global file sets the baseline silently; project files with hooks/MCP alert on first sight (cloned-repo attack). */
+function watchedFiles(cwd?: string): { p: string; global: boolean }[] {
+  return [...GLOBAL_WATCHED.map((p) => ({ p, global: true })), ...(cwd ? projectFiles(cwd).map((p) => ({ p, global: false })) : [])];
+}
+
+function readItems(p: string): Item[] | null {
+  if (!existsSync(p)) return null;
+  try {
+    return extractItems(p, readFileSync(p, "utf8")).filter((i) => !isOwnHook(`${i.kind}|${i.item}`));
+  } catch {
+    return null;
+  }
+}
+
+export interface WatchedFile {
+  path: string;
+  items: { kind: WatchAlert["kind"]; item: string; isNew: boolean }[];
+}
+
+/**
+ * Current hooks / MCP servers / auto-run settings in every watched file for `cwd` (global + project),
+ * marked new when not in the baseline. Read-only: the baseline is not updated (used by `ladon scan`).
+ */
+export function listWatched(cwd: string): WatchedFile[] {
+  const snap = loadSnap();
+  const out: WatchedFile[] = [];
+  for (const { p, global } of watchedFiles(cwd)) {
+    const items = readItems(p);
+    if (!items || items.length === 0) continue;
+    const before = snap[p];
+    const prev = new Set(before ?? []);
+    out.push({ path: p, items: items.map((i) => ({ ...i, isNew: before === undefined ? !global : !prev.has(`${i.kind}|${i.item}`) })) });
+  }
+  return out;
+}
+
 export function checkWatched(opts: { cwd?: string; update?: boolean } = {}): WatchAlert[] {
   const snap = loadSnap();
   const alerts: WatchAlert[] = [];
-  const files = [...GLOBAL_WATCHED.map((p) => ({ p, global: true })), ...(opts.cwd ? projectFiles(opts.cwd).map((p) => ({ p, global: false })) : [])];
-  for (const { p, global } of files) {
-    if (!existsSync(p)) continue;
-    let text: string;
-    try {
-      text = readFileSync(p, "utf8");
-    } catch {
-      continue;
-    }
-    const items = extractItems(p, text).filter((i) => !isOwnHook(`${i.kind}|${i.item}`));
+  for (const { p, global } of watchedFiles(opts.cwd)) {
+    const items = readItems(p);
+    if (!items) continue;
     const keys = items.map((i) => `${i.kind}|${i.item}`);
     const before = snap[p];
     if (before === undefined && global) {

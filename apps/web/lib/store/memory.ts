@@ -2,19 +2,30 @@ import type { Ecosystem } from "@ladon/core";
 import type {
   ApprovalPatch,
   ApprovalRecord,
+  AtlasAlertQuery,
   AtlasNameRecord,
   AtlasObservation,
   AtlasReportRecord,
   AtlasSearch,
   DecisionRecord,
+  DeviceKeyRecord,
   DeviceRecord,
   PairCodeRecord,
   PasskeyRecord,
+  RateTake,
   Store,
   VerdictCacheRecord,
 } from "./types";
 
 const clone = <T>(v: T): T => structuredClone(v);
+
+/** Registered strictly after we first saw it as hallucinated — the slopsquat signal. */
+export function isAtlasAlert(e: Pick<AtlasNameRecord, "registered" | "registeredAt" | "firstSeen">): boolean {
+  if (!e.registered || !e.registeredAt) return false;
+  const r = Date.parse(e.registeredAt);
+  const f = Date.parse(e.firstSeen);
+  return Number.isFinite(r) && Number.isFinite(f) && r > f;
+}
 const atlasKey = (eco: Ecosystem, name: string) => `${eco}:${name}`;
 
 /** In-process store for local dev and tests. Data lives until the process exits. */
@@ -28,6 +39,10 @@ export class MemoryStore implements Store {
   private atlas = new Map<string, AtlasNameRecord>();
   private reports: AtlasReportRecord[] = [];
   private verdicts = new Map<string, VerdictCacheRecord>();
+  private deviceKeys = new Map<string, DeviceKeyRecord>();
+  private rates = new Map<string, { windowStart: number; used: number }>();
+  /** clock for rateTake (tests) */
+  now: () => number = Date.now;
 
   constructor(seed: AtlasNameRecord[] = []) {
     for (const e of seed) this.atlas.set(atlasKey(e.ecosystem, e.name), clone(e));
@@ -163,12 +178,45 @@ export class MemoryStore implements Store {
   async listAtlasUnregistered(limit: number) {
     return [...this.atlas.values()].filter((e) => !e.registered).slice(0, limit).map(clone);
   }
+  async listAtlasAlerts(q: AtlasAlertQuery) {
+    const since = q.since ? Date.parse(q.since) : -Infinity;
+    return [...this.atlas.values()]
+      .filter((e) => isAtlasAlert(e) && (!q.ecosystem || e.ecosystem === q.ecosystem) && Date.parse(e.registeredAt!) >= since)
+      .sort((a, b) => b.registeredAt!.localeCompare(a.registeredAt!) || a.name.localeCompare(b.name))
+      .slice(0, q.limit)
+      .map(clone);
+  }
   async addAtlasReport(r: AtlasReportRecord) {
     this.reports.push(clone(r));
   }
   /** test helper */
   reportCount() {
     return this.reports.length;
+  }
+
+  async addDeviceKey(k: DeviceKeyRecord) {
+    const id = `${k.deviceId}:${k.publicKey}`;
+    const prev = this.deviceKeys.get(id);
+    this.deviceKeys.set(id, clone({ ...k, createdAt: prev?.createdAt ?? k.createdAt }));
+  }
+  async listDeviceKeys(deviceId: string) {
+    return [...this.deviceKeys.values()].filter((k) => k.deviceId === deviceId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(clone);
+  }
+
+  async rateTake(bucket: string, limit: number, windowSeconds: number, cost: number): Promise<RateTake> {
+    const w = windowSeconds * 1000;
+    const t = this.now();
+    const windowStart = Math.floor(t / w) * w;
+    let e = this.rates.get(bucket);
+    if (!e || e.windowStart !== windowStart) {
+      if (this.rates.size >= 10_000) for (const [k, v] of this.rates) if (v.windowStart < windowStart) this.rates.delete(k);
+      e = { windowStart, used: 0 };
+      this.rates.set(bucket, e);
+    }
+    const resetAt = new Date(windowStart + w).toISOString();
+    if (e.used + cost > limit) return { ok: false, used: e.used, resetAt };
+    e.used += cost;
+    return { ok: true, used: e.used, resetAt };
   }
 
   async getVerdict(ecosystem: Ecosystem, name: string, version: string) {

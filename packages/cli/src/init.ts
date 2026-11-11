@@ -9,7 +9,7 @@ import { listKeyPorts, openSerial } from "./approve/serial.js";
 import { CLI_ENTRY } from "./client.js";
 import { loadConfig, loadState, saveConfig, saveState } from "./config.js";
 import { installShims, PATH_LINE, shimsActive, shq } from "./shim.js";
-import { createDevice } from "./web.js";
+import { announceKey, createDevice } from "./web.js";
 import { checkWatched } from "./watch.js";
 
 const cli = (sub: string) => `${shq(process.execPath)} ${shq(CLI_ENTRY)} ${sub}`;
@@ -126,6 +126,7 @@ export async function pairKey(log: (s: string) => void): Promise<boolean> {
     st.keyCounter = Math.max(st.keyCounter, hello.ctr);
     saveState(st);
     log(`  ✓ paired Ladon Key ${keyFingerprint(hello.pk)} on ${path} — check that the Key's screen shows the same code`);
+    await announceKey(cfg, hello.pk, hello.name, log);
     return true;
   } finally {
     await link.close();

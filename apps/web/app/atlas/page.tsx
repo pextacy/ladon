@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Hallucination Atlas",
   description: "Package names AI models invent, and whether someone has registered them.",
+  alternates: { types: { "application/atom+xml": [{ url: "/atlas/feed.xml", title: "Ladon Atlas — newly registered names" }] } },
 };
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
@@ -60,6 +61,10 @@ export default async function AtlasPage({ searchParams }: { searchParams: SP }) 
           AI models recommend packages that don&apos;t exist, and they invent the same names again and again. Attackers register those
           names and wait for an agent to install them — &ldquo;slopsquatting&rdquo;. The Atlas lists names models have invented and
           whether anyone has registered them since.
+        </p>
+        <p className="mt-3 text-sm text-muted">
+          Get told when a hallucinated name gets registered: <a href="/atlas/feed.xml" className="font-medium text-fg underline">Atom feed of new registrations</a>{" "}
+          or <code className="font-mono text-fg">GET /api/atlas/alerts</code>.
         </p>
       </div>
 

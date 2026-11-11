@@ -81,3 +81,18 @@ export const postDecision = (cfg: Config, d: DecisionLog) => call(cfg, "/api/dec
 
 export const atlasReport = (cfg: Config, r: { ecosystem: "npm" | "pypi"; name: string; model?: string }) =>
   call(cfg, "/api/atlas/report", z.object({ ok: z.boolean() }), { method: "POST", body: JSON.stringify(r), auth: false, timeoutMs: 3000 });
+
+/** Tell the web dashboard which Ladon Key this device uses (informational; the local pin stays authoritative). */
+export const registerKey = (cfg: Config, publicKey: string, label?: string) =>
+  call(cfg, "/api/devices/me/keys", z.object({ ok: z.boolean(), fingerprint: z.string() }), { method: "POST", body: JSON.stringify({ publicKey, ...(label ? { label: label.slice(0, 80) } : {}) }), timeoutMs: 5000 });
+
+/** Best-effort registerKey after `ladon key pair`; never fails the pairing. */
+export async function announceKey(cfg: Config, publicKey: string, label: string | undefined, log: (s: string) => void): Promise<void> {
+  if (!cfg.device) return;
+  try {
+    await registerKey(cfg, publicKey, label);
+    log(`  ✓ listed the Key on your dashboard (${new URL(cfg.webUrl).host})`);
+  } catch (e) {
+    log(`  ▲ could not list the Key on the dashboard: ${e instanceof Error ? e.message : String(e)} (pairing is still done — approvals are verified locally)`);
+  }
+}

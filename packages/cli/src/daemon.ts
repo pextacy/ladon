@@ -6,7 +6,7 @@ import { LADON_VERSION } from "@ladon/core";
 import { DAEMON_PORT, daemonToken, loadConfig, PATHS } from "./config.js";
 import { gate, type GateResult } from "./gate.js";
 import { gateEnv, loadLadonEnv, notify, sharedKeyBridge } from "./runtime.js";
-import { checkWatched } from "./watch.js";
+import { ConfigWatcher, withConfigAlerts } from "./watcher.js";
 
 const GateBody = z.object({
   command: z.string().min(1).max(20_000),
@@ -69,6 +69,13 @@ export async function runDaemon(port = DAEMON_PORT) {
   const token = daemonToken();
   const tok = Buffer.from(token);
   const env = { ...(await gateEnv()), approvalLock: serialized };
+  const watcher = new ConfigWatcher();
+  const announce = (alerts: { detail: string }[]) => {
+    for (const a of alerts) {
+      log(`watch: ${a.detail}`);
+      notify("Ladon — AI tool config changed", a.detail);
+    }
+  };
 
   const server = createServer(async (req, res) => {
     // Only same-machine tools with the token file may call us; browsers can't (no CORS, token required).
@@ -104,7 +111,9 @@ export async function runDaemon(port = DAEMON_PORT) {
           if (m.includes("HOLD")) notify("Ladon — install held", m.split("\n")[0]!.replace(/\x1b\[[0-9;]*m/g, ""));
         } }, env);
         log(`${r.decision} ${r.verdict} ${r.outcome} ${body.command.slice(0, 200)}`);
-        return send(res, 200, slimResult(r));
+        // guard-the-guards: remember this project, check it if new, and hand pending config alerts to the agent
+        announce(watcher.touch(body.cwd));
+        return send(res, 200, withConfigAlerts(slimResult(r), watcher.take()));
       } catch (e) {
         log(`error ${e instanceof Error ? e.stack : String(e)}`);
         return send(res, 500, { error: e instanceof Error ? e.message : String(e) });
@@ -126,13 +135,8 @@ export async function runDaemon(port = DAEMON_PORT) {
   });
   log(`daemon ${LADON_VERSION} listening on 127.0.0.1:${port} (pid ${process.pid}, ai ${env.intent ? "on" : "off"})`);
 
-  // guard-the-guards: re-check agent config files every 30 s
-  const watchTimer = setInterval(() => {
-    for (const a of checkWatched({ update: true })) {
-      log(`watch: ${a.detail}`);
-      notify("Ladon — AI tool config changed", a.detail);
-    }
-  }, 30_000);
+  // guard-the-guards: re-check global + recently used project agent configs every 30 s
+  const watchTimer = setInterval(() => announce(watcher.tick()), 30_000);
   watchTimer.unref();
 
   const shutdown = async () => {

@@ -3,15 +3,18 @@ import type { Ecosystem } from "@ladon/core";
 import type {
   ApprovalPatch,
   ApprovalRecord,
+  AtlasAlertQuery,
   AtlasNameRecord,
   AtlasObservation,
   AtlasReportRecord,
   AtlasSearch,
   DecisionRecord,
+  DeviceKeyRecord,
   DeviceRecord,
   IntentRecord,
   PairCodeRecord,
   PasskeyRecord,
+  RateTake,
   Store,
   VerdictCacheRecord,
 } from "./types";
@@ -33,6 +36,8 @@ interface AtlasRow {
   ecosystem: Ecosystem; name: string; first_seen: string; models: string[] | null; seen_count: number; registered: boolean;
   registered_at: string | null; source: string | null; last_checked: string | null;
 }
+interface DeviceKeyRow { device_id: string; public_key: string; fingerprint: string; label: string; created_at: string }
+interface RateRow { allowed: boolean; used: number; reset_at: string }
 interface VerdictRow { ecosystem: Ecosystem; name: string; version: string; evidence: unknown; score: number; computed_at: string }
 
 const device = (r: DeviceRow): DeviceRecord => ({ id: r.id, label: r.label, tokenHash: r.token_hash, createdAt: r.created_at });
@@ -53,6 +58,8 @@ const atlas = (r: AtlasRow): AtlasNameRecord => ({
   ecosystem: r.ecosystem, name: r.name, firstSeen: r.first_seen, models: r.models ?? [], seenCount: r.seen_count, registered: r.registered,
   registeredAt: r.registered_at, source: r.source, lastChecked: r.last_checked,
 });
+
+const deviceKey = (r: DeviceKeyRow): DeviceKeyRecord => ({ deviceId: r.device_id, publicKey: r.public_key, fingerprint: r.fingerprint, label: r.label, createdAt: r.created_at });
 
 class DbError extends Error {}
 function check<T>(res: { data: T; error: { message: string; code?: string } | null }, what: string): T {
@@ -201,8 +208,37 @@ export class SupabaseStore implements Store {
     ) as AtlasRow[] | null;
     return (rows ?? []).map(atlas);
   }
+  async listAtlasAlerts(q: AtlasAlertQuery) {
+    // atlas_alerts (migration 0002) = registered names whose registered_at > first_seen
+    let query = this.db.from("atlas_alerts").select("*");
+    if (q.ecosystem) query = query.eq("ecosystem", q.ecosystem);
+    if (q.since) query = query.gte("registered_at", q.since);
+    const rows = check(await query.order("registered_at", { ascending: false }).order("name").limit(q.limit), "atlas alerts") as AtlasRow[] | null;
+    return (rows ?? []).map(atlas);
+  }
   async addAtlasReport(r: AtlasReportRecord) {
     check(await this.db.from("atlas_reports").insert({ ecosystem: r.ecosystem, name: r.name, model: r.model, ts: r.ts }), "atlas report");
+  }
+
+  async addDeviceKey(k: DeviceKeyRecord) {
+    check(
+      await this.db
+        .from("device_keys")
+        // created_at is left to the column default so a re-registration keeps the first date
+        .upsert({ device_id: k.deviceId, public_key: k.publicKey, fingerprint: k.fingerprint, label: k.label }, { onConflict: "device_id,public_key", ignoreDuplicates: false }),
+      "add device key",
+    );
+  }
+  async listDeviceKeys(deviceId: string) {
+    const rows = check(await this.db.from("device_keys").select("device_id,public_key,fingerprint,label,created_at").eq("device_id", deviceId).order("created_at"), "list device keys") as DeviceKeyRow[] | null;
+    return (rows ?? []).map(deviceKey);
+  }
+
+  async rateTake(bucket: string, limit: number, windowSeconds: number, cost: number): Promise<RateTake> {
+    const data = check(await this.db.rpc("rate_limit_take", { p_bucket: bucket, p_limit: limit, p_window_seconds: windowSeconds, p_cost: cost }), "rate limit") as RateRow[] | RateRow | null;
+    const r = Array.isArray(data) ? data[0] : data;
+    if (!r || typeof r.allowed !== "boolean") throw new DbError("database error (rate limit): unexpected result");
+    return { ok: r.allowed, used: Number(r.used), resetAt: r.reset_at };
   }
 
   async getVerdict(ecosystem: Ecosystem, name: string, version: string) {

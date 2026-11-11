@@ -130,6 +130,32 @@ export interface AtlasSearch {
   offset?: number;
 }
 
+export interface AtlasAlertQuery {
+  /** only names registered at or after this ISO time */
+  since?: string;
+  ecosystem?: Ecosystem;
+  limit: number;
+}
+
+/** A Ladon Key's public key registered for a device (informational; the daemon's pin is authoritative). */
+export interface DeviceKeyRecord {
+  deviceId: string;
+  /** raw Ed25519 public key, 64 lowercase hex chars */
+  publicKey: string;
+  /** keyFingerprint(publicKey) — the code shown on the Key's screen */
+  fingerprint: string;
+  label: string;
+  createdAt: string;
+}
+
+export interface RateTake {
+  ok: boolean;
+  /** units used in the current window (after this take when ok) */
+  used: number;
+  /** ISO time the window resets */
+  resetAt: string;
+}
+
 export interface VerdictCacheRecord {
   ecosystem: Ecosystem;
   name: string;
@@ -175,7 +201,16 @@ export interface Store {
   observeAtlasName(o: AtlasObservation): Promise<void>;
   setAtlasRegistered(ecosystem: Ecosystem, name: string, registeredAt: string | null, checkedAt: string): Promise<void>;
   listAtlasUnregistered(limit: number): Promise<AtlasNameRecord[]>;
+  /** names registered after we first saw them as hallucinated, newest registration first */
+  listAtlasAlerts(q: AtlasAlertQuery): Promise<AtlasNameRecord[]>;
   addAtlasReport(r: AtlasReportRecord): Promise<void>;
+
+  /** upsert by (deviceId, publicKey) */
+  addDeviceKey(k: DeviceKeyRecord): Promise<void>;
+  listDeviceKeys(deviceId: string): Promise<DeviceKeyRecord[]>;
+
+  /** fixed-window counter shared by every server instance: add `cost` unless that would exceed `limit` */
+  rateTake(bucket: string, limit: number, windowSeconds: number, cost: number): Promise<RateTake>;
 
   getVerdict(ecosystem: Ecosystem, name: string, version: string): Promise<VerdictCacheRecord | null>;
   putVerdict(r: VerdictCacheRecord): Promise<void>;
