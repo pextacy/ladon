@@ -69,3 +69,22 @@ export async function fetchBytes(source: string, url: string, maxBytes: number, 
   if (buf.byteLength > maxBytes) throw new SourceError(source, `archive too large (${buf.byteLength} bytes)`);
   return buf;
 }
+
+/**
+ * GET a small text file. 404/410 → null. An HTML page where a raw file was expected (e.g. a
+ * sign-in redirect for a private repository) is "could not read" → SourceError, never content.
+ */
+export async function fetchText(source: string, url: string, opts: HttpOptions & { maxBytes?: number } = {}): Promise<string | null> {
+  const f = opts.fetch ?? fetch;
+  let res: Response;
+  try {
+    res = await f(url, { headers: { "user-agent": opts.userAgent ?? DEFAULT_UA }, signal: AbortSignal.timeout(opts.timeoutMs ?? 8000) });
+  } catch (e) {
+    throw new SourceError(source, `cannot reach ${new URL(url).host} (${e instanceof Error ? e.name : "error"})`);
+  }
+  if (res.status === 404 || res.status === 410) return null;
+  if (!res.ok) throw new SourceError(source, `${new URL(url).host} answered HTTP ${res.status}`, res.status);
+  if (/text\/html/i.test(res.headers.get("content-type") ?? "")) throw new SourceError(source, `${new URL(url).host} returned a web page, not the file`);
+  const text = await res.text();
+  return text.slice(0, opts.maxBytes ?? 512 * 1024);
+}

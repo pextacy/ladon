@@ -5,7 +5,7 @@ import type { FetchLike } from "./sources/http.js";
 import { npmSource } from "./sources/npm.js";
 import { osvSource } from "./sources/osv.js";
 import { pypiSource } from "./sources/pypi.js";
-import { githubRepoSource } from "./sources/repo.js";
+import { repoSource } from "./sources/repo.js";
 
 export const DEFAULT_ATLAS_URL = "https://ladon-one.vercel.app/";
 
@@ -32,6 +32,6 @@ export function createDeps(cfg: DepsConfig = {}): CheckDeps {
     atlas: atlasSource({ ...http, cache, baseUrl: cfg.atlasUrl === undefined ? DEFAULT_ATLAS_URL : cfg.atlasUrl || "http://127.0.0.1:9/" }),
     cache,
   };
-  if (cfg.repoCheck !== false) deps.repo = githubRepoSource({ ...http, cache });
+  if (cfg.repoCheck !== false) deps.repo = repoSource({ ...http, cache });
   return deps;
 }
