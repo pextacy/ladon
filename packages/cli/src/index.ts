@@ -30,7 +30,7 @@ import { init, pairKey, registerDevice, waitForPasskey } from "./init.js";
 import { defaultApprovers, loadLadonEnv } from "./runtime.js";
 import { scanAll } from "./scan.js";
 import { installShims, PATH_LINE, shimExec, shimsActive, uninstallShims } from "./shim.js";
-import { checkWatched } from "./watch.js";
+import { checkWatched, listWatched } from "./watch.js";
 
 const HELP = `ladon ${LADON_VERSION} — a firewall between AI coding agents and package registries
 
@@ -38,7 +38,8 @@ const HELP = `ladon ${LADON_VERSION} — a firewall between AI coding agents and
                              install Claude Code hooks + shims, pair Key / passkey
   ladon check <pkg>[@v] [--pypi] [-v] [--json] [--registry URL]
                              verdict for one package
-  ladon scan                 scan instruction files (AGENTS.md, CLAUDE.md, …) here → repo → home
+  ladon scan                 scan instruction files (AGENTS.md, CLAUDE.md, …) here → repo → home,
+                             then list agent hooks / MCP servers / auto-run tasks (read-only)
   ladon watch                show new hooks / MCP servers in AI-tool configs since the baseline
   ladon status               what is installed, paired and running
   ladon log [-n 20]          recent decisions
@@ -114,17 +115,26 @@ async function cmdCheck(args: string[]): Promise<number> {
 }
 
 function cmdScan(): number {
-  const scans = scanAll(process.cwd());
-  if (scans.length === 0) {
-    out("✓ no agent instruction files found here, in the repo, or in your home directory");
-    return 0;
-  }
+  const cwd = process.cwd();
+  const scans = scanAll(cwd);
   let worst = 0;
+  if (scans.length === 0) out("✓ no agent instruction files found here, in the repo, or in your home directory");
   for (const s of scans) {
     const shape = s.risk === "high" ? "■" : s.risk === "medium" ? "▲" : "✓";
     out(`${shape} ${s.risk.toUpperCase().padEnd(6)} ${s.path.replace(homedir(), "~")}`);
     for (const f of s.findings) out(`    ${f.line ? `line ${f.line}: ` : ""}${f.detail}${f.excerpt ? `\n      ${f.excerpt}` : ""}`);
     worst = Math.max(worst, s.risk === "high" ? 2 : s.risk === "medium" ? 1 : 0);
+  }
+  // Agent configs (read-only: the watch baseline is not updated — `ladon watch` does that).
+  const configs = listWatched(cwd);
+  out("\nAgent configs (hooks, MCP servers, auto-run tasks):");
+  if (configs.length === 0) out("  ✓ none found");
+  const kind = { hook: "hook", mcp: "MCP ", task: "auto" } as const;
+  for (const c of configs) {
+    const fresh = c.items.filter((i) => i.isNew).length;
+    out(`${fresh ? "▲" : "✓"} ${c.path.replace(homedir(), "~")}${fresh ? `  (${fresh} new since the last \`ladon watch\`)` : ""}`);
+    for (const i of c.items) out(`    ${i.isNew ? "NEW " : "    "}${kind[i.kind]}  ${i.item.slice(0, 160)}`);
+    if (fresh) worst = Math.max(worst, 1);
   }
   return worst;
 }
