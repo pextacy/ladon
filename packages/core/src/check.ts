@@ -198,7 +198,7 @@ async function gatherPypi(ev: Evidence, target: InstallTarget, deps: CheckDeps, 
     return;
   }
   ev.exists = true;
-  const version = resolvePypiVersion(info, target.versionSpec);
+  const version = resolvePypiVersion(info, target.versionSpec) ?? info.latest;
   if (version) ev.version = version;
   const rel = version ? info.releases[version] : undefined;
   const regEv: RegistryEvidence = { maintainers: info.author ? [info.author] : [], previousMaintainers: [], installScripts: {}, hasBindingGyp: false };

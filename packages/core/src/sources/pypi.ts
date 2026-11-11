@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizePypiName } from "../parse/command.js";
+import { maxSatisfyingPep440, parsePep440Specifier } from "../parse/pep440.js";
 import { cached, TTL, type Cache } from "./cache.js";
 import { fetchBytes, fetchJson, type HttpOptions } from "./http.js";
 
@@ -73,10 +74,16 @@ export function compactPypi(raw: unknown): PypiPackageInfo | null {
   return out;
 }
 
+/**
+ * Resolve a PEP 440 specifier the way pip does: highest matching non-yanked release, pre-releases
+ * only when the spec names one. Returns undefined when nothing matches; an unparseable spec (e.g.
+ * a Poetry caret range) falls back to the latest release.
+ */
 export function resolvePypiVersion(info: PypiPackageInfo, spec: string | undefined): string | undefined {
-  if (!spec) return info.latest;
+  if (!spec || spec.trim() === "" || spec.trim() === "*") return info.latest;
   if (info.releases[spec]) return spec;
-  return info.latest; // ranges: pip picks latest compatible; latest is the conservative guess
+  if (!parsePep440Specifier(spec)) return info.latest;
+  return maxSatisfyingPep440(Object.keys(info.releases), spec);
 }
 
 export interface PypiSource {
