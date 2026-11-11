@@ -1,3 +1,5 @@
+import type { ApprovalProof } from "../config.js";
+
 export interface PendingApproval {
   id: string;
   /** sha256 of cwd + command */
@@ -14,7 +16,7 @@ export interface PendingApproval {
 }
 
 export type ApprovalOutcome =
-  | { kind: "approved"; via: "key" | "passkey"; detail: string }
+  | { kind: "approved"; via: "key" | "passkey"; detail: string; proof?: ApprovalProof }
   | { kind: "rejected"; via: "key" | "passkey"; detail: string }
   | { kind: "timeout"; detail: string }
   | { kind: "unavailable"; detail: string };

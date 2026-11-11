@@ -26,6 +26,7 @@ import {
   type Report,
   type Verdict,
 } from "@ladon/core";
+import { verifiedAllowlist } from "./allowlist.js";
 import { requestApproval, type ApprovalOutcome, type Approver, type PendingApproval } from "./approve/index.js";
 import { loadConfig, loadState, PATHS, type Config } from "./config.js";
 import { isDefaultNpm, npmRegistryFor, pypiIndexFor } from "./registry.js";
@@ -188,7 +189,7 @@ export async function gate(input: GateInput, env: GateEnv): Promise<GateResult> 
 
   const lock = loadLockfiles(input.cwd);
   const state = loadState();
-  const allowlisted = new Set(state.allowlist.map((a) => a.target));
+  const allowlisted = await verifiedAllowlist(cfg, state, input.onStatus); // signed entries only, re-verified
   const reports: Report[] = [];
 
   for (const p of installs) {
@@ -200,7 +201,7 @@ export async function gate(input: GateInput, env: GateEnv): Promise<GateResult> 
     const deps =
       env.deps?.({ ...(npmReg ? { npm: npmReg } : {}), ...(pypiIdx ? { pypi: pypiIdx } : {}) }) ??
       createDeps({ cacheDir: PATHS.cache, atlasUrl: cfg.webUrl, ...(npmReg ? { npmRegistry: npmReg } : {}), ...(pypiIdx ? { pypiIndex: pypiIdx } : {}) });
-    const todo = targets.filter((t) => !allowlisted.has(`${t.ecosystem}:${t.name}`));
+    const todo = targets.filter((t) => !allowlisted.allows(t));
     const checked = await checkMany(todo.slice(0, 80), deps, { lockfile: lock, failMode: cfg.failMode });
     for (const r of checked) {
       if (p.kind === "exec" && r.verdict !== "allow") r.hits.push({ id: "G03", name: "exec", weight: 0, override: false, detail: "downloads and runs the package immediately (npx/uvx)" });

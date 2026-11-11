@@ -119,6 +119,8 @@ export class KeyBridge implements Approver {
     state.usedNonces.push(req.n);
     saveState(state);
     if (res.reason === "timeout") return { kind: "timeout", detail: "no press on the Ladon Key in time" };
-    return v.approved ? { kind: "approved", via: "key", detail: "approved on Ladon Key" } : { kind: "rejected", via: "key", detail: "rejected on Ladon Key" };
+    if (!v.approved) return { kind: "rejected", via: "key", detail: "rejected on Ladon Key" };
+    const proof = { via: "key" as const, id: req.id, h: req.h, n: req.n, exp: req.exp, ctr: res.ctr, sig: res.sig, publicKey: cfg.key.publicKey };
+    return { kind: "approved", via: "key", detail: "approved on Ladon Key", proof };
   }
 }

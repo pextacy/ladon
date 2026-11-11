@@ -39,11 +39,36 @@ export const Config = z.object({
 });
 export type Config = z.infer<typeof Config>;
 
+const hex = (n?: number) => z.string().regex(n ? new RegExp(`^[0-9a-f]{${n}}$`) : /^[0-9a-f]+$/);
+const reqFields = { id: z.string().max(64), h: hex(64), n: hex(), exp: z.number().int() };
+
+/**
+ * The human approval behind an allowlist entry, kept so it can be re-verified on every load against
+ * the pinned Key / passkeys (allowlist.ts). `h` binds the exact entry (allowlistHash).
+ */
+export const ApprovalProof = z.discriminatedUnion("via", [
+  z.object({ via: z.literal("key"), ...reqFields, ctr: z.number().int().nonnegative(), sig: hex(128), publicKey: hex(64) }),
+  z.object({ via: z.literal("passkey"), ...reqFields, decision: z.literal("approve"), assertion: z.unknown() }),
+]);
+export type ApprovalProof = z.infer<typeof ApprovalProof>;
+
+export const AllowlistEntry = z.object({
+  /** "npm:name" / "pypi:normalized-name" */
+  target: z.string(),
+  /** exact version only; absent = every version */
+  version: z.string().optional(),
+  approvedAt: z.string(),
+  via: z.enum(["key", "passkey"]),
+  /** absent on entries written before signed allowlists — those are ignored */
+  proof: ApprovalProof.optional(),
+});
+export type AllowlistEntry = z.infer<typeof AllowlistEntry>;
+
 /** Mutable security state kept apart from config: counters and used nonces (replay protection). */
 export const State = z.object({
   keyCounter: z.number().int().nonnegative().default(0),
   usedNonces: z.array(z.string()).default([]),
-  allowlist: z.array(z.object({ target: z.string(), approvedAt: z.string(), via: z.enum(["key", "passkey"]) })).default([]),
+  allowlist: z.array(AllowlistEntry).default([]),
 });
 export type State = z.infer<typeof State>;
 

@@ -15,6 +15,7 @@ import {
   parsePipSpec,
   type InstallTarget,
 } from "@ladon/core";
+import { allowlistHash, allowTarget, entryLabel, exactVersion, verifiedAllowlist } from "./allowlist.js";
 import { keyHello } from "./approve/key.js";
 import { requestApproval } from "./approve/index.js";
 import { serverPasskeys } from "./approve/passkey.js";
@@ -43,7 +44,9 @@ const HELP = `ladon ${LADON_VERSION} — a firewall between AI coding agents and
   ladon log [-n 20]          recent decisions
   ladon key pair|status      pair the Ladon Key over USB
   ladon passkey pair|list    pair a phone/laptop passkey via the web app
-  ladon allow <pkg>          permanently allow a package — requires Key or passkey approval
+  ladon allow <pkg>[@1.2.3]  permanently allow a package (or one exact version) — requires Key or passkey approval
+  ladon allow --remove <pkg>[@v] | --list
+                             remove an entry (no approval needed — it only tightens) / show entries
   ladon shim install|uninstall|status
   ladon daemon               run the local service (127.0.0.1:${DAEMON_PORT}); started automatically
 
@@ -161,7 +164,23 @@ async function cmdStatus(): Promise<number> {
   out(`  passkeys           ${cfg.passkeys.length ? `✓ ${cfg.passkeys.length} pinned` : "✗ none"}`);
   out(`  web                ${cfg.webUrl}${cfg.device ? ` (device ${cfg.device.label})` : " (not registered)"}`);
   out(`  fail mode          ${cfg.failMode}; warn → ${cfg.onWarn}; atlas reports ${cfg.atlasReports ? "on" : "off"}`);
-  out(`  allowlist          ${st.allowlist.length} package(s)`);
+  const allow = await verifiedAllowlist(cfg, st);
+  const ignored = allow.rejected.filter((r) => r.entry.proof);
+  out(`  allowlist          ${allow.entries.length} verified entr${allow.entries.length === 1 ? "y" : "ies"}${ignored.length ? ` · ■ ${ignored.length} IGNORED (signature does not verify — ladon allow --list)` : ""}`);
+  // One-time migration: entries from before signed allowlists carry no proof. They are ignored by the
+  // gate; tell the human once and drop them so they can re-add them with an approval.
+  const legacy = allow.rejected.filter((r) => !r.entry.proof);
+  if (legacy.length > 0) {
+    out(`\n▲ ${legacy.length} allowlist entr${legacy.length === 1 ? "y was" : "ies were"} added before allowlists were signed and ${legacy.length === 1 ? "is" : "are"} no longer honoured:`);
+    for (const r of legacy) {
+      const [eco, ...rest] = r.entry.target.split(":");
+      out(`    ${entryLabel(r.entry)}  →  re-add with: ladon allow ${rest.join(":")}${r.entry.version ? `@${r.entry.version}` : ""}${eco === "pypi" ? " --pypi" : ""}`);
+    }
+    const fresh = loadState();
+    fresh.allowlist = fresh.allowlist.filter((e) => e.proof);
+    saveState(fresh);
+    out("  (removed from state.json; this notice is shown once)");
+  }
   return 0;
 }
 
@@ -230,35 +249,72 @@ async function cmdPasskey(args: string[]): Promise<number> {
 }
 
 async function cmdAllow(args: string[]): Promise<number> {
-  const target = args[0] ? parseTarget(args[0], flag(args, "--pypi")) : null;
+  const pypi = flag(args, "--pypi");
+  const list = flag(args, "--list");
+  const remove = flag(args, "--remove");
+  if (list) {
+    const cfg = loadConfig();
+    const v = await verifiedAllowlist(cfg, loadState());
+    if (v.entries.length + v.rejected.length === 0) out("allowlist is empty");
+    for (const e of v.entries) out(`  ✓ ${entryLabel(e).padEnd(40)} approved ${e.approvedAt.slice(0, 10)} via ${e.via === "key" ? "Ladon Key" : "passkey"}`);
+    for (const r of v.rejected) out(`  ■ ${entryLabel(r.entry).padEnd(40)} IGNORED — ${r.reason}`);
+    return 0;
+  }
+  const target = args[0] ? parseTarget(args[0], pypi) : null;
   if (!target) {
-    err("usage: ladon allow <pkg> [--pypi]");
+    err("usage: ladon allow <pkg>[@exact-version] [--pypi]\n       ladon allow --remove <pkg>[@version]\n       ladon allow --list");
     return 2;
   }
+  const key = allowTarget(target.ecosystem, target.name);
+  const version = exactVersion(target.versionSpec);
+  if (target.versionSpec && !version) {
+    err(`ladon: "${target.versionSpec}" is not an exact version — allow a single version like ${target.name}@1.2.3, or the name alone for every version`);
+    return 2;
+  }
+  if (remove) {
+    // Removing only tightens the gate, so it needs no approval.
+    const st = loadState();
+    const before = st.allowlist.length;
+    st.allowlist = st.allowlist.filter((a) => !(a.target === key && (!version || a.version === version)));
+    const n = before - st.allowlist.length;
+    if (n === 0) {
+      out(`${key}${version ? `@${version}` : ""} is not on the allowlist`);
+      return 1;
+    }
+    saveState(st);
+    out(`✓ removed ${n} allowlist entr${n === 1 ? "y" : "ies"} for ${key}${version ? `@${version}` : ""}`);
+    return 0;
+  }
   loadLadonEnv();
-  const key = `${target.ecosystem}:${target.name}`;
-  out(`Adding ${key} to the allowlist needs a human: approve on your Ladon Key or passkey.`);
+  const entry = { target: key, ...(version ? { version } : {}) };
+  const label = entryLabel(entry);
+  out(`Adding ${label} to the allowlist needs a human: approve on your Ladon Key or passkey.`);
   const req = {
     id: newRequestId(),
-    h: commandHash(`ladon allow ${key}`, process.cwd()),
+    h: allowlistHash(entry), // binds the exact entry; re-verified every time the allowlist is loaded
     n: newNonce(),
     exp: Math.floor(Date.now() / 1000) + 120,
-    pkg: `allowlist ${key}`,
+    pkg: `allowlist ${label}`,
     ecosystem: target.ecosystem,
     name: target.name,
+    ...(version ? { version } : {}),
     score: 0,
-    why: ["add to the permanent allowlist", "future installs skip checks"],
+    why: [version ? `allow only version ${version}` : "allow every version", "future installs skip checks"],
   };
   const o = await requestApproval(defaultApprovers(), req, out);
   if (o.kind !== "approved") {
     err(`■ not allowlisted: ${o.detail}`);
     return 1;
   }
+  if (!o.proof) {
+    err("■ not allowlisted: the approval carried no verifiable proof");
+    return 1;
+  }
   const st = loadState();
-  st.allowlist = st.allowlist.filter((a) => a.target !== key);
-  st.allowlist.push({ target: key, approvedAt: new Date().toISOString(), via: o.via });
+  st.allowlist = st.allowlist.filter((a) => !(a.target === key && a.version === entry.version));
+  st.allowlist.push({ ...entry, approvedAt: new Date().toISOString(), via: o.via, proof: o.proof });
   saveState(st);
-  out(`✓ ${key} allowlisted (${o.detail})`);
+  out(`✓ ${label} allowlisted (${o.detail})`);
   return 0;
 }
 

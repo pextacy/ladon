@@ -98,15 +98,7 @@ describe("gate", () => {
     expect(r.agentText).toContain("task mismatch");
   });
 
-  it("allowlist skips checks", async () => {
-    const st = loadState();
-    st.allowlist.push({ target: "npm:color-fn-utils", approvedAt: NOW.toISOString(), via: "key" });
-    saveState(st);
-    const r = await gate({ command: "pnpm add color-fn-utils", cwd }, { approvers: [], deps: fakeDeps });
-    expect(r.decision).toBe("allow");
-    st.allowlist = [];
-    saveState(st);
-  });
+  // allowlist behaviour (signed entries, versions) is tested in allowlist.test.ts
 
   it("manifest install: npm ci trusts the lockfile, checks deps missing from it", () => {
     const dir = mkdtempSync(join(tmpdir(), "ladon-mf-"));
