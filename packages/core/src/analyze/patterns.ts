@@ -33,9 +33,12 @@ export const ENV: Pattern[] = [
   { re: /Login Data|Local State|Keychain|\.mozilla\/firefox|wallet\.dat|\.solana|\.ethereum/i, label: "touches browser or wallet secrets" },
 ];
 
+export const EVAL_LABEL = "uses eval()";
+export const FUNCTION_LABEL = "builds code with Function()";
+
 export const OBFUSCATION: Pattern[] = [
-  { re: /\beval\s*\(/, label: "uses eval()" },
-  { re: /\bnew\s+Function\s*\(|(?<![\w.])Function\s*\(\s*['"`]/, label: "builds code with Function()" },
+  { re: /\beval\s*\(/, label: EVAL_LABEL },
+  { re: /\bnew\s+Function\s*\(|(?<![\w.])Function\s*\(\s*['"`]/, label: FUNCTION_LABEL },
   { re: /[A-Za-z0-9+/]{200,}={0,2}/, label: "contains a long base64 blob" },
   { re: /(?:\\x[0-9a-fA-F]{2}){40,}|['"][0-9a-fA-F]{200,}['"]/, label: "contains a long hex blob" },
   { re: /String\.fromCharCode\((?:\s*\d+\s*,){20,}/, label: "decodes char codes" },

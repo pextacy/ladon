@@ -127,3 +127,18 @@ describe("pyproject-only sdists (PEP 517)", () => {
     expect(analyzeSdist(makeTgz({ "x-1.0/README": "hi" }))).toBeNull();
   });
 });
+
+describe("AST eval/Function findings", () => {
+  it("adds what the regexes miss and dedupes what they already found", () => {
+    const f = analyzeNpmTarball(
+      { postinstall: "node a.js" },
+      makeTgz({
+        "package/a.js": "require('./b'); const code = load(); Function(code)(); globalThis.eval(code2)",
+        "package/b.js": "eval('1+1')",
+      }),
+    );
+    const mine = (file: string) => f.obfuscation.filter((o) => o.endsWith(`(${file})`));
+    expect(mine("a.js").sort()).toEqual(["builds code with Function() (a.js)", "uses eval() (a.js)"]);
+    expect(mine("b.js")).toEqual(["uses eval() (b.js)"]); // regex + AST → one entry
+  });
+});

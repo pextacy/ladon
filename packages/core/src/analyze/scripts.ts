@@ -2,7 +2,7 @@ import type { BuildBackendInfo, ScriptFindings } from "../evidence.js";
 import { parseTomlSubset } from "../parse/pyproject.js";
 import { analyzeJsAst } from "./js.js";
 import { agentConfigWrites } from "./agentconfig.js";
-import { AGENT_CONFIG, AGENT_CONFIG_OWNERS, ENV, matchAll, NETWORK, OBFUSCATION, PY_EXEC, PY_NETWORK } from "./patterns.js";
+import { AGENT_CONFIG, AGENT_CONFIG_OWNERS, ENV, EVAL_LABEL, FUNCTION_LABEL, matchAll, NETWORK, OBFUSCATION, PY_EXEC, PY_NETWORK } from "./patterns.js";
 import { readTarGz, stripRoot, type TarFile } from "./tar.js";
 
 export const INSTALL_HOOKS = ["preinstall", "install", "postinstall", "prepare"] as const;
@@ -100,6 +100,9 @@ export function analyzeNpmFiles(installScripts: Record<string, string>, tar: Tar
     if (isJs) {
       const ast = analyzeJsAst(code);
       if (ast.dynamicExec) addAll(f.obfuscation, ["runs child_process with a computed command"], resolved);
+      // AST sees eval/Function calls the regexes miss (e.g. `Function(code)()`, `globalThis.eval`);
+      // same labels as the regex patterns, so addAll keeps one entry per file
+      addAll(f.obfuscation, ast.evalKinds.map((k) => (k === "eval" ? EVAL_LABEL : FUNCTION_LABEL)), resolved);
       if (depth < 2) {
         for (const r of ast.requires) {
           if (r.startsWith(".")) queue.push({ path: normalizePath(`${dirOf(resolved)}/${r}`), depth: depth + 1 });
