@@ -42,7 +42,7 @@ in the case, set `TFT_ROTATION 3`. On a 240-wide panel the footer is shortened t
 ## Protocol (v1)
 
 USB CDC, 115200 baud, one JSON object per line, `\n` terminated (`\r` ignored).
-Lines over 1024 bytes are discarded and answered with `{"t":"err","msg":"oversize"}`.
+Lines over 4096 bytes (`MAX_LINE_LEN`) are discarded and answered with `{"t":"err","msg":"oversize"}`.
 The USB serial port carries **only** protocol JSON; the host should still skip any line
 that does not parse.
 
@@ -53,7 +53,7 @@ that does not parse.
 | `{"t":"hello"}` | reply `{"t":"hello","v":1,"pk":"<64 hex>","ctr":<uint32>,"name":"Ladon Key"}`. `ctr` = last counter used (0 = never signed). |
 | `{"t":"req","id":"a1b2","pkg":"npm:color-fn-utils@1.0.2","score":85,"why":["..."],"h":"<64 hex>","n":"<hex>","exp":1763139600}` | show request, wait for the human. |
 | `{"t":"cancel","id":"a1b2"}` | drop the pending request with that id and return to idle. No reply. Unknown or stale ids are silently ignored. |
-| `{"t":"time","now":<unix s>}` | optional. Display only: the countdown shows `min(120 s local, exp - now)`. |
+| `{"t":"time","now":<unix s>}` | optional (the daemon sends it before every `req`). The Key has no RTC; it keeps this time with `millis()` and then times a request out at `min(120 s local, exp)`. The countdown shows the same. |
 
 Field rules for `req`. A field that breaks a rule gets `{"t":"err","msg":"bad req"}`:
 
@@ -74,7 +74,7 @@ Because `id`, `h` and `n` can't contain `|`, the signed message can't be ambiguo
 ```json
 {"t":"res","id":"a1b2","ok":true,"ctr":42,"sig":"<128 hex>"}
 {"t":"res","id":"a1b2","ok":false,"ctr":43,"sig":"<128 hex>","reason":"timeout"}
-{"t":"err","msg":"busy"}
+{"t":"err","msg":"busy","id":"a1b2"}
 ```
 
 Signed message: the UTF-8 string `${id}|${h}|${n}|${exp}|${ok?1:0}|${ctr}`.
@@ -85,7 +85,9 @@ every response, approve or reject. If the commit fails the Key sends
 
 `err` messages: `bad json`, `missing t`, `unknown t`, `bad req`, `bad cancel`, `bad time`,
 `oversize`, `busy` (a req arrived while one is pending), `keystore unavailable`,
-`counter persist failed`.
+`counter persist failed`, `internal` (signed message did not fit; nothing signed).
+Errors about a specific request (`busy`, `keystore unavailable` on a req, `counter persist failed`,
+`internal`) carry that request's `id`; the host ignores an `err` whose `id` names a different request.
 
 ### Human interaction
 
@@ -93,8 +95,10 @@ every response, approve or reject. If the commit fails the Key sends
   you hold. Let go early and the hold resets. If the button is already down when the request
   arrives, it must be released and pressed again, so a jammed or taped button can't approve.
 - **Reject**: one press of CANCEL. If both buttons are active in the same tick, reject wins.
-- **Timeout**: 120 s after the request arrives, the Key sends a signed `ok:false` with
-  `reason:"timeout"`. The Key has no RTC, so it does not check `exp`; the host must.
+- **Timeout**: 120 s after the request arrives, or once `exp` has passed by the clock from the
+  last `time` message (whichever is first), the Key sends a signed `ok:false` with
+  `reason:"timeout"`. The Key has no RTC: without a `time` message it cannot see `exp`, and a
+  host-supplied clock is only a hint, so the host must still check `exp` itself.
 - LED: off when idle, red pulse while a request waits, green flash on approve, solid red flash on
   reject or timeout, steady red on a fatal keystore error.
 

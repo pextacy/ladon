@@ -105,12 +105,18 @@ function loadSnap(): Snapshot {
  * so a malicious hook can't hide by mentioning "ladon".
  */
 const CLI_PATH = fileURLToPath(new URL("./index.js", import.meta.url));
-export function isOwnHook(item: string, cliPath = CLI_PATH): boolean {
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Exactly how init.ts writes a path: bare when safe, else single-quoted. */
+const quotedForms = (p: string) => [p, `'${p.replace(/'/g, `'\\''`)}'`];
+export function isOwnHook(item: string, cliPath = CLI_PATH, nodePath = process.execPath): boolean {
   const m = /^hook\|[A-Za-z]+(?:\([^)]*\))?: (.*)$/.exec(item);
   if (!m) return false;
   const cmd = m[1]!.trim();
-  const escaped = cliPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^'?[^\\s']*node'? '?${escaped}'? hook (claude-pre-tool-use|claude-session-start|cursor)$`).test(cmd);
+  // The interpreter must be exactly this Node binary (or a bare `node` from PATH) — not any file whose
+  // name merely ends in "node" (`/tmp/evilnode /…/index.js hook cursor` would otherwise be exempt).
+  const nodes = ["node", ...quotedForms(nodePath)].map(esc).join("|");
+  const clis = quotedForms(cliPath).map(esc).join("|");
+  return new RegExp(`^(?:${nodes}) (?:${clis}) hook (?:claude-pre-tool-use|claude-session-start|cursor)$`).test(cmd);
 }
 
 /** Compare watched files with the baseline. First sight of a global file sets the baseline silently; project files with hooks/MCP alert on first sight (cloned-repo attack). */
@@ -119,14 +125,28 @@ export function checkWatched(opts: { cwd?: string; update?: boolean } = {}): Wat
   const alerts: WatchAlert[] = [];
   const files = [...GLOBAL_WATCHED.map((p) => ({ p, global: true })), ...(opts.cwd ? projectFiles(opts.cwd).map((p) => ({ p, global: false })) : [])];
   for (const { p, global } of files) {
-    if (!existsSync(p)) continue;
+    const ownKey = `${p}#ladon`;
+    // Ladon's own hook disappearing (an agent or tool "cleaning up" the config) silently turns the gate
+    // off, so it is an alert too.
+    const ownRemoved = () => {
+      if (!snap[ownKey]) return;
+      delete snap[ownKey];
+      alerts.push({ path: p, kind: "hook", item: "ladon", detail: `Ladon's own hook was removed from ${p.replace(home, "~")} — installs are no longer gated there. Run \`ladon init\` to restore it.` });
+    };
+    if (!existsSync(p)) {
+      ownRemoved();
+      continue;
+    }
     let text: string;
     try {
       text = readFileSync(p, "utf8");
     } catch {
       continue;
     }
-    const items = extractItems(p, text).filter((i) => !isOwnHook(`${i.kind}|${i.item}`));
+    const all = extractItems(p, text);
+    if (all.some((i) => isOwnHook(`${i.kind}|${i.item}`))) snap[ownKey] = ["present"];
+    else ownRemoved();
+    const items = all.filter((i) => !isOwnHook(`${i.kind}|${i.item}`));
     const keys = items.map((i) => `${i.kind}|${i.item}`);
     const before = snap[p];
     if (before === undefined && global) {

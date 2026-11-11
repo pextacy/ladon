@@ -129,6 +129,9 @@ void writeLine(const char* s) {
 }  // namespace
 
 void begin() {
+  // Must precede begin(). A whole request line can then sit in the RX buffer while loop() is busy
+  // redrawing the display, instead of relying on the default 256-byte buffer.
+  Serial.setRxBufferSize(MAX_LINE_LEN + 64);
   Serial.begin(115200);
   lineLen = 0;
   overflow = false;
@@ -171,10 +174,11 @@ void sendHello() {
   writeLine(buf);
 }
 
-void sendErr(const char* msg) {
+void sendErr(const char* msg, const char* id) {
   JsonDocument doc;
   doc["t"] = "err";
   doc["msg"] = msg;
+  if (id && id[0]) doc["id"] = id;  // lets the host tell a reply to *its* request from a stale one
   char buf[160];
   serializeJson(doc, buf, sizeof(buf));
   writeLine(buf);
@@ -183,7 +187,7 @@ void sendErr(const char* msg) {
 bool sendResult(const Request& req, bool ok, const char* reason) {
   uint32_t ctr;
   if (!keystore::nextCounter(&ctr)) {
-    sendErr("counter persist failed");
+    sendErr("counter persist failed", req.id);
     return false;
   }
   // `${id}|${h}|${n}|${exp}|${ok?1:0}|${ctr}`
@@ -191,6 +195,10 @@ bool sendResult(const Request& req, bool ok, const char* reason) {
   int len = snprintf(msg, sizeof(msg), "%s|%s|%s|%llu|%d|%lu", req.id, req.h, req.n,
                      static_cast<unsigned long long>(req.exp), ok ? 1 : 0,
                      static_cast<unsigned long>(ctr));
+  if (len <= 0 || static_cast<size_t>(len) >= sizeof(msg)) {  // never sign a truncated message
+    sendErr("internal", req.id);
+    return false;
+  }
   char sig[129];
   keystore::signHex(msg, static_cast<size_t>(len), sig);
 

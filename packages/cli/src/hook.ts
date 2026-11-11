@@ -10,6 +10,32 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/**
+ * Claude Code kills a hook after its timeout (150 s, see init.ts) and then lets the tool call run —
+ * fail open. So the hook gives up first and denies. Cursor gets the same budget.
+ */
+export const HOOK_DEADLINE_MS = 140_000;
+
+export async function gateWithDeadline(
+  input: Parameters<typeof gateCommand>[0],
+  ms = HOOK_DEADLINE_MS,
+  run: typeof gateCommand = gateCommand,
+): Promise<Awaited<ReturnType<typeof gateCommand>>> {
+  const ctrl = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      ctrl.abort();
+      reject(new Error(`no verdict within ${Math.round(ms / 1000)} s`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([run(input, undefined, ctrl.signal), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const PreToolUse = z.object({
   hook_event_name: z.string().optional(),
   tool_name: z.string(),
@@ -54,9 +80,9 @@ async function claudePreToolUseInner(): Promise<number> {
     return 0;
   }
   if (parseInstallCommand(command).length === 0) return 0;
-  const r = await gateCommand({
+  const r = await gateWithDeadline({
     command,
-    cwd: input.cwd ?? process.cwd(),
+    cwd: input.cwd || process.cwd(),
     ...(input.transcript_path ? { transcriptPath: input.transcript_path } : {}),
     agent: "claude-code",
   });
@@ -92,8 +118,18 @@ export async function claudeSessionStart(): Promise<number> {
 
 const CursorShell = z.object({ command: z.string(), cwd: z.string().optional() }).passthrough();
 
-/** Cursor `beforeShellExecution` hook (hooks.json). */
+/** Cursor `beforeShellExecution` hook (hooks.json). Any internal failure denies (fail closed). */
 export async function cursorBeforeShell(): Promise<number> {
+  try {
+    return await cursorBeforeShellInner();
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    process.stdout.write(JSON.stringify({ permission: "deny", userMessage: `Ladon internal error — command blocked: ${m}`, agentMessage: `Ladon could not check this command (${m}); it is blocked (fail closed). Tell the user; do not try another way.` }));
+    return 0;
+  }
+}
+
+async function cursorBeforeShellInner(): Promise<number> {
   let input;
   try {
     input = CursorShell.parse(JSON.parse(await readStdin()));
@@ -112,7 +148,7 @@ export async function cursorBeforeShell(): Promise<number> {
   }
   let r;
   try {
-    r = await gateCommand({ command: input.command, cwd: input.cwd ?? process.cwd(), agent: "cursor" });
+    r = await gateWithDeadline({ command: input.command, cwd: input.cwd || process.cwd(), agent: "cursor" });
   } catch (e) {
     process.stdout.write(JSON.stringify({ permission: "deny", userMessage: `Ladon internal error — install blocked`, agentMessage: `Ladon could not check this install (${e instanceof Error ? e.message : String(e)}); it is blocked.` }));
     return 0;

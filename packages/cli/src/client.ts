@@ -1,20 +1,45 @@
 import { spawn } from "node:child_process";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, openSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { LADON_VERSION } from "@ladon/core";
 import { DAEMON_PORT, daemonToken, LADON_HOME, PATHS } from "./config.js";
-import { slimResult, type SlimResult } from "./daemon.js";
+import { daemonProof, slimResult, type SlimResult } from "./daemon.js";
 import { gate, type GateInput } from "./gate.js";
 import { gateEnv, loadLadonEnv } from "./runtime.js";
 
-const base = `http://127.0.0.1:${DAEMON_PORT}`;
+const BASE = `http://127.0.0.1:${DAEMON_PORT}`;
 export const CLI_ENTRY = fileURLToPath(new URL("./index.js", import.meta.url));
 
-async function healthy(): Promise<boolean> {
+const proofOk = (given: string | null, expected: string) => {
+  if (!given) return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+};
+
+export type DaemonProbe = { state: "down" } | { state: "impostor" } | { state: "up"; version: string };
+
+/**
+ * Is the real daemon listening? Something answering /health is not enough: it must prove it knows the
+ * token (HMAC over a fresh challenge) before we send it the token or trust its verdicts.
+ */
+export async function probeDaemon(base = BASE): Promise<DaemonProbe> {
+  const c = randomBytes(16).toString("hex");
+  let res: Response;
+  let text: string;
   try {
-    const r = await fetch(`${base}/health`, { signal: AbortSignal.timeout(400) });
-    return r.ok;
+    res = await fetch(`${base}/health?c=${c}`, { signal: AbortSignal.timeout(400) });
+    text = await res.text();
   } catch {
-    return false;
+    return { state: "down" };
+  }
+  if (!res.ok || !proofOk(res.headers.get("x-ladon-proof"), daemonProof(daemonToken(), c, text))) return { state: "impostor" };
+  try {
+    const v = (JSON.parse(text) as { version?: unknown }).version;
+    return { state: "up", version: typeof v === "string" ? v : "" };
+  } catch {
+    return { state: "impostor" };
   }
 }
 
@@ -25,34 +50,63 @@ export function startDaemonDetached() {
   child.unref();
 }
 
-export async function ensureDaemon(): Promise<boolean> {
-  if (await healthy()) return true;
+async function stopDaemon(base: string) {
+  try {
+    await fetch(`${base}/shutdown`, { method: "POST", headers: { "x-ladon-token": daemonToken() }, signal: AbortSignal.timeout(1000) });
+  } catch {
+    /* already gone */
+  }
+  for (let i = 0; i < 20; i++) {
+    if ((await probeDaemon(base)).state === "down") return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+export async function ensureDaemon(base = BASE): Promise<boolean> {
+  let p = await probeDaemon(base);
+  if (p.state === "impostor") return false; // never talk to it; the caller gates in-process
+  if (p.state === "up" && p.version === LADON_VERSION) return true;
+  if (p.state === "up") await stopDaemon(base); // stale daemon from an older install: replace it
   startDaemonDetached();
   for (let i = 0; i < 25; i++) {
     await new Promise((r) => setTimeout(r, 120));
-    if (await healthy()) return true;
+    p = await probeDaemon(base);
+    if (p.state === "up") return p.version === LADON_VERSION;
+    if (p.state === "impostor") return false;
   }
   return false;
 }
 
+/** POST /gate to the daemon; null unless the response is proven to come from the real daemon. */
+export async function postGate(input: Omit<GateInput, "onStatus">, opts: { base?: string; signal?: AbortSignal } = {}): Promise<SlimResult | null> {
+  const c = randomBytes(16).toString("hex");
+  const token = daemonToken();
+  const r = await fetch(`${opts.base ?? BASE}/gate`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-ladon-token": token, "x-ladon-challenge": c },
+    body: JSON.stringify(input),
+    signal: opts.signal ?? AbortSignal.timeout(10 * 60_000),
+  });
+  const text = await r.text();
+  if (!r.ok || !proofOk(r.headers.get("x-ladon-proof"), daemonProof(token, c, text))) return null;
+  return JSON.parse(text) as SlimResult;
+}
+
 /**
  * Ask the daemon for a verdict (it owns the Key connection and the warm cache). If the daemon cannot
- * be started, run the same gate in-process — never skip the check.
+ * be started or can't prove it is ours, run the same gate in-process — never skip the check.
  */
-export async function gateCommand(input: Omit<GateInput, "onStatus">, onStatus?: (m: string) => void): Promise<SlimResult> {
+export async function gateCommand(input: Omit<GateInput, "onStatus">, onStatus?: (m: string) => void, signal?: AbortSignal): Promise<SlimResult> {
   if (await ensureDaemon()) {
     try {
-      const r = await fetch(`${base}/gate`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-ladon-token": daemonToken() },
-        body: JSON.stringify(input),
-        signal: AbortSignal.timeout(10 * 60_000),
-      });
-      if (r.ok) return (await r.json()) as SlimResult;
-    } catch {
+      const r = await postGate(input, signal ? { signal: AbortSignal.any([signal, AbortSignal.timeout(10 * 60_000)]) } : {});
+      if (r) return r;
+    } catch (e) {
+      if (signal?.aborted) throw e;
       /* fall through to in-process */
     }
   }
+  if (signal?.aborted) throw new Error("timed out");
   loadLadonEnv();
   const env = await gateEnv();
   return slimResult(await gate({ ...input, ...(onStatus ? { onStatus } : {}) }, env));

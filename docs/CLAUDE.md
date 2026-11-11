@@ -82,7 +82,7 @@ Ladon has four heads:
 /firmware             Ladon Key firmware
 /hardware             KiCad, Gerbers, DXF, BOM.csv, photos
 /demo                 Verdaccio config, canary packages, poisoned AGENTS.md scenarios
-/fixtures             recorded registry responses for offline tests
+/fixtures             evaluation corpus + results (pnpm eval); unit tests stub sources inline
 ```
 
 ## Conventions

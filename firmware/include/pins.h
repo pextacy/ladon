@@ -40,4 +40,6 @@
 #define HOLD_TO_APPROVE_MS   1500UL
 #define REQUEST_TIMEOUT_MS   120000UL
 #define BUTTON_DEBOUNCE_MS   25UL
-#define MAX_LINE_LEN         1024
+// The host allows pkg <= 240 and 3 x why <= 120 UTF-16 units; JSON-escaped that is up to ~3.9 KB
+// (6 bytes per control char, 3 per non-ASCII BMP char), so 1024 could reject legitimate requests.
+#define MAX_LINE_LEN         4096

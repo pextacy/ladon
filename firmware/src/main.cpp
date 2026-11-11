@@ -59,12 +59,21 @@ void finish(bool ok, const char* reason) {
   outcomeUntilMs = millis() + kOutcomeShowMs;
 }
 
+// No RTC: wall-clock time is only known from the host's {"t":"time"} (sent before every req)
+// plus millis() since then. Without it only the local 120 s timeout applies.
+bool pastExpiry(uint32_t now) {
+  if (!haveTime) return false;
+  uint64_t unixNow = timeBaseUnix + (now - timeBaseMs) / 1000;
+  return unixNow > pending.exp;  // same rule as the host: valid while now <= exp
+}
+
 uint32_t remainingSeconds(uint32_t now) {
   uint32_t elapsed = now - pendingSinceMs;
   uint32_t local = elapsed >= REQUEST_TIMEOUT_MS ? 0 : (REQUEST_TIMEOUT_MS - elapsed + 999) / 1000;
   if (!haveTime) return local;
   uint64_t unixNow = timeBaseUnix + (now - timeBaseMs) / 1000;
-  uint64_t toExp = pending.exp > unixNow ? pending.exp - unixNow : 0;
+  // Seconds left including the current one (exp itself is still valid on the host).
+  uint64_t toExp = pending.exp >= unixNow ? pending.exp - unixNow + 1 : 0;
   return toExp < local ? static_cast<uint32_t>(toExp) : local;
 }
 
@@ -81,9 +90,9 @@ void handleMessage(uint32_t now) {
       break;
     case protocol::Kind::Req:
       if (!keyOk) {
-        protocol::sendErr("keystore unavailable");
+        protocol::sendErr("keystore unavailable", msg.req.id);
       } else if (state == State::Pending) {
-        protocol::sendErr("busy");
+        protocol::sendErr("busy", msg.req.id);
       } else {
         pending = msg.req;
         pendingSinceMs = now;
@@ -112,7 +121,9 @@ void tickPending(uint32_t now) {
     finish(false, nullptr);
     return;
   }
-  if (now - pendingSinceMs >= REQUEST_TIMEOUT_MS) {
+  // Time out at whichever comes first: 120 s on the Key, or the request's own exp. Signing an
+  // approval after exp would only produce something the host rejects as "approval expired".
+  if (now - pendingSinceMs >= REQUEST_TIMEOUT_MS || pastExpiry(now)) {
     finish(false, "timeout");
     return;
   }

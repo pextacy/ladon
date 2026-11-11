@@ -1,4 +1,5 @@
 import type { Ecosystem } from "@ladon/core";
+import { safeEqual } from "../tokens";
 import type {
   ApprovalPatch,
   ApprovalRecord,
@@ -43,8 +44,10 @@ export class MemoryStore implements Store {
     return d ? clone(d) : null;
   }
   async getDeviceByTokenHash(tokenHash: string) {
-    for (const d of this.devices.values()) if (d.tokenHash === tokenHash) return clone(d);
-    return null;
+    // constant-time compare, and scan every device so timing doesn't depend on which one matched
+    let found: DeviceRecord | null = null;
+    for (const d of this.devices.values()) if (safeEqual(d.tokenHash, tokenHash) && !found) found = d;
+    return found ? clone(found) : null;
   }
 
   async createPairCode(p: PairCodeRecord) {

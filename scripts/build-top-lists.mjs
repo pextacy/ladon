@@ -1,4 +1,4 @@
-// Builds packages/core/data/top-{npm,pypi}.json (top 5,000 by downloads).
+// Builds packages/core/src/data/top-{npm,pypi}.json (top 5,000 by downloads).
 // Sources: npm-high-impact (wooorm, MIT) top-download list; hugovk/top-pypi-packages (30-day downloads).
 // Usage: node scripts/build-top-lists.mjs <path-to-npm-high-impact/lib/top-download.js> <top-pypi-packages.min.json>
 import { readFileSync, writeFileSync } from "node:fs";

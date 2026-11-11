@@ -13,7 +13,13 @@ const pkgName = z
   .max(214)
   .regex(/^(@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9._~-]+$/, "not a valid npm or PyPI package name");
 export const EcosystemParam = z.enum(["npm", "pypi"]);
-const reasons = z.array(z.string().max(200)).max(5);
+/**
+ * Reasons are rule details written by core (e.g. the intent-drift detail is up to ~210 chars, the
+ * "does not exist" detail embeds a 214-char name). Truncate instead of rejecting: a 400 here would make
+ * the daemon's passkey path "unavailable" and silently drop dashboard logs.
+ */
+const clip = (max: number) => z.string().max(4096).transform((s) => (s.length > max ? `${s.slice(0, max - 1)}…` : s));
+const reasons = z.array(clip(200)).max(5);
 
 export const CreateDeviceBody = z.object({ label });
 
@@ -65,7 +71,7 @@ export const CreateApprovalBody = z.object({
   version: z.string().max(100).optional(),
   score: z.number().int().min(0).max(100),
   reasons,
-  intent: z.object({ drift: z.enum(["none", "weak", "strong"]), reason: z.string().max(240) }).optional(),
+  intent: z.object({ drift: z.enum(["none", "weak", "strong"]), reason: clip(240) }).optional(),
 });
 export type CreateApprovalBody = z.infer<typeof CreateApprovalBody>;
 

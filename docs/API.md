@@ -42,6 +42,9 @@ Statuses: `pending` → `approved` / `rejected` (by assertion) or `expired` (now
 | Method | Route | Body | Response |
 |---|---|---|---|
 | POST | `/api/decisions` | Bearer. `{ ts, ecosystem, package, version?, verdict, score, reasons: string[≤5], outcome: "allowed" \| "warned" \| "approved" \| "rejected" \| "timeout" \| "blocked", via?: "key" \| "passkey" \| null, agent?: string }` | `{ ok }` |
+| POST | `/api/session/options` | — | WebAuthn request options for dashboard sign-in (any registered passkey). 503 if `LADON_SESSION_SECRET` is missing in production |
+| POST | `/api/session/verify` | `{ response: AuthenticationResponseJSON }` | `{ ok }` + httpOnly, sameSite=strict session cookie |
+| DELETE | `/api/session` | — | `{ ok }`, clears the cookie |
 | GET | `/dashboard` | page, passkey sign-in | recent decisions + blocked attempts for devices the passkey belongs to |
 
 Privacy (CLAUDE.md #5): never send source code, prompts, paths, env vars. `agent` is just e.g. `"claude-code"`.

@@ -92,3 +92,12 @@ describe("MemoryStore", () => {
     expect(await s.getVerdict("npm", "a", "1.0.0")).toBeNull();
   });
 });
+
+describe("MemoryStore token lookup", () => {
+  it("matches only the exact hash among several devices", async () => {
+    const s = new MemoryStore();
+    for (const i of [1, 2, 3]) await s.createDevice({ id: `d${i}`, label: "l", tokenHash: `${i}`.repeat(64), createdAt: "x" });
+    expect((await s.getDeviceByTokenHash("2".repeat(64)))?.id).toBe("d2");
+    expect(await s.getDeviceByTokenHash("2".repeat(63))).toBeNull();
+  });
+});

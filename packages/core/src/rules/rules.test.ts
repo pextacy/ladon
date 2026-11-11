@@ -105,6 +105,21 @@ describe("established-package discount", () => {
     const s = scoreEvidence(ev({ ...base, registry: { ...base.registry, versionPublished: hoursAgo(10) } }));
     expect(s.verdict).not.toBe("allow");
   });
+  const fresh = { ...base, registry: { ...base.registry, versionPublished: hoursAgo(10), previousVersion: "1.0.0", publisher: "alice", previousPublisher: "alice", maintainers: ["alice"], previousMaintainers: ["alice"] } };
+  it("discounts a fresh routine release that keeps the previous install scripts and publisher", () => {
+    const s = scoreEvidence(ev({ ...fresh, registry: { ...fresh.registry, previousInstallScripts: { postinstall: "node install.js" } } }));
+    expect(s.hits.filter((h) => !h.discounted).map((h) => h.id)).toEqual([]);
+    expect(s.verdict).toBe("allow");
+  });
+  it("no discount when the fresh release adds or changes an install script", () => {
+    expect(scoreEvidence(ev({ ...fresh, registry: { ...fresh.registry, previousInstallScripts: {} } })).verdict).not.toBe("allow");
+    expect(scoreEvidence(ev({ ...fresh, registry: { ...fresh.registry, previousInstallScripts: { postinstall: "node other.js" } } })).verdict).not.toBe("allow");
+  });
+  it("no discount when the fresh release comes from a new publisher or drops provenance", () => {
+    const same = { postinstall: "node install.js" };
+    expect(scoreEvidence(ev({ ...fresh, registry: { ...fresh.registry, previousInstallScripts: same, publisher: "mallory" } })).verdict).not.toBe("allow");
+    expect(scoreEvidence(ev({ ...fresh, registry: { ...fresh.registry, previousInstallScripts: same, previousProvenance: true, provenance: false } })).verdict).not.toBe("allow");
+  });
   it("never discounts agent-config writes", () => {
     const s = scoreEvidence(ev({ ...base, scripts: { ...scriptsHit, agentConfig: ["references Claude Code config (install.js)"] } }));
     expect(s.hits.find((h) => h.id === "R15")?.discounted).toBeUndefined();

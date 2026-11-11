@@ -1,7 +1,7 @@
 import semver from "semver";
 import { z } from "zod";
 import { cached, TTL, type Cache } from "./cache.js";
-import { fetchBytes, fetchJson, type HttpOptions } from "./http.js";
+import { fetchBytes, fetchJson, SourceError, type HttpOptions } from "./http.js";
 
 const Person = z.union([z.string(), z.object({ name: z.string().optional(), email: z.string().optional() })]);
 const Repository = z.union([z.string(), z.object({ url: z.string().optional(), directory: z.string().optional() })]);
@@ -152,7 +152,11 @@ export function npmSource(opts: NpmSourceOptions = {}): NpmSource {
     packument: (name) =>
       cached(opts.cache, `npm:pk:${registry}:${name}`, TTL.metadata, async () => {
         const raw = await fetchJson("npm registry", `${registry}${enc(name)}`, z.unknown(), opts);
-        return raw === null ? null : compactPackument(raw);
+        if (raw === null) return null;
+        // a reachable registry returning an unreadable document is an error, not "does not exist"
+        const info = compactPackument(raw);
+        if (info === null) throw new SourceError("npm registry", `${new URL(registry).host} returned an unreadable packument for ${name}`);
+        return info;
       }),
     weeklyDownloads: (name) =>
       cached(opts.cache, `npm:dl:${name}`, TTL.downloads, async () => {
@@ -168,6 +172,6 @@ export function npmSource(opts: NpmSourceOptions = {}): NpmSource {
         });
         return r === null ? 0 : r.downloads;
       }),
-    tarball: (url) => fetchBytes("npm tarball", url, 8 * 1024 * 1024, opts),
+    tarball: (url, maxBytes) => fetchBytes("npm tarball", url, maxBytes, opts),
   };
 }

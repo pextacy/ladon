@@ -36,6 +36,6 @@ jobs:
       - run: pnpm demo:publish-canaries
       - run: node scripts/eval.mjs | tee eval.txt
       - name: fail if targets missed
-        run: grep -E "bad caught (9[0-9]|100)\.[0-9] %, benign held [0-5]\.[0-9] %" eval.txt
+        run: grep -E "bad caught (9[0-9]|100)\.[0-9] %, benign held ([0-4]\.[0-9]|5\.0) %" eval.txt
       - uses: actions/upload-artifact@v4
         with: { name: eval, path: "docs/EVAL.md" }

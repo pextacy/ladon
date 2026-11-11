@@ -36,9 +36,28 @@ export const DISCOUNTABLE = new Set(["R08", "R09", "R10", "R11", "R13"]);
  * install-script heuristics are shown but not counted. DOCS §2.
  */
 export function isEstablished(ev: Evidence): boolean {
-  const first = ageMs(ev, ev.registry?.firstPublished);
-  const ver = ageMs(ev, ev.registry?.versionPublished);
-  return (ev.weeklyDownloads ?? 0) >= 100_000 && first !== undefined && first >= 180 * DAY && ver !== undefined && ver >= 7 * DAY;
+  const r = ev.registry;
+  const first = ageMs(ev, r?.firstPublished);
+  const ver = ageMs(ev, r?.versionPublished);
+  if ((ev.weeklyDownloads ?? 0) < 100_000 || first === undefined || first < 180 * DAY || ver === undefined) return false;
+  if (ver >= 7 * DAY) return true;
+  // A fresh release of a popular package counts as routine only when it keeps the previous release's
+  // install scripts unchanged and comes from the same publisher. A hijacked release that adds or edits
+  // an install script, or is pushed by someone else, gets no discount (R07/R14 add their own weight).
+  return routineRelease(ev);
+}
+
+function routineRelease(ev: Evidence): boolean {
+  const r = ev.registry;
+  if (!r?.previousVersion || !r.previousInstallScripts) return false;
+  const same = (a: Record<string, string>, b: Record<string, string>) => {
+    const ka = Object.keys(a).sort();
+    return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
+  };
+  if (!same(r.installScripts, r.previousInstallScripts)) return false;
+  if (r.publisher && r.previousPublisher && r.publisher !== r.previousPublisher && !r.previousMaintainers.includes(r.publisher)) return false;
+  if (r.previousProvenance === true && r.provenance !== true) return false;
+  return true;
 }
 
 /** Deterministic scoring — DOCS §1/§2. Pure function of the evidence. */

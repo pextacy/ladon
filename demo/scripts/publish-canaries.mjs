@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { demoRegistry } from "./registry-guard.mjs";
+import { assertLocalOnlyPackage, demoRegistry } from "./registry-guard.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const demoDir = join(here, "..");
@@ -35,9 +35,9 @@ for (const name of readdirSync(canariesDir)) {
   const dir = join(canariesDir, name);
   if (!existsSync(join(dir, "package.json"))) continue;
   const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-  if (pkg.publishConfig?.registry !== undefined) demoRegistry({ LADON_DEMO_REGISTRY: pkg.publishConfig.registry });
+  assertLocalOnlyPackage(pkg, dir, { existsSync });
   try {
-    execFileSync("npm", ["publish", "--userconfig", npmrc, "--registry", registry], { cwd: dir, stdio: "pipe" });
+    execFileSync("npm", ["publish", "--ignore-scripts", "--userconfig", npmrc, "--registry", registry], { cwd: dir, stdio: "pipe" });
     console.log(`published ${pkg.name}@${pkg.version} → ${registry}`);
   } catch (e) {
     const out = `${e.stdout ?? ""}${e.stderr ?? ""}`;

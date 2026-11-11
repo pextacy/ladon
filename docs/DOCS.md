@@ -13,7 +13,7 @@ Technical reference: scoring rules, similarity, script analysis, intent judge, a
 Hard overrides (always hold, score = 100): OSV `MAL-` advisory match; package does not exist
 (install would fail anyway — but we log it to Atlas and tell the agent it hallucinated).
 
-## 2. Rules (`packages/core/rules`)
+## 2. Rules (`packages/core/src/rules/rules.ts`)
 
 | ID | Signal | Weight | Notes |
 |---|---|---|---|
@@ -41,20 +41,21 @@ Weights are hackathon defaults; tune on the fixture corpus and document changes 
 | ID | Signal | Weight | Notes |
 |---|---|---|---|
 | E01 `source_unavailable` | a critical source (registry, OSV, install-script analysis when scripts exist) failed | +60 | fail closed; `failMode: "open"` in `~/.ladon/config.json` disables |
-| G01 `non_registry_source` | git URL / tarball URL / local path spec | +35 | can't be verified (CLI gate) |
+| G01 `non_registry_source` | git URL / tarball URL / local path spec: +35; a name only known at run time (`$PKG`, `$(…)`, xargs, `--userconfig`): +60 (hold) | +35 / +60 | can't be verified (CLI gate) |
 | G02 `custom_registry` | `--registry` to a non-default, non-loopback registry | +30 | CLI gate |
 | G03 `exec` | `npx` / `uvx` / `dlx` — runs immediately | 0 | shown as a reason only |
 | AI1 `intent_drift_*` | LLM intent judge (§5) | 0 | strong drift escalates allow→warn, warn→hold; never lowers |
 
 **Established-package discount (tuned on the corpus):** when a package has ≥ 100k weekly downloads, was
-first published ≥ 180 days ago and the requested version is ≥ 7 days old, R08–R11 and R13 are shown but
-not counted. Popular packages such as esbuild, sharp and prisma legitimately download binaries at install;
+first published ≥ 180 days ago and the requested version is ≥ 7 days old — or is a fresh *routine* release
+(same install scripts as the previous version, same publisher, provenance not dropped) — R08–R11 and R13
+are shown but not counted. A fresh release that adds or edits an install script gets no discount. Popular packages such as esbuild, sharp and prisma legitimately download binaries at install;
 for them the real risk is a hijacked *new* version, which R07, R14, R15 and OSV still catch. Without this
 discount esbuild scored 95 (hold). Results: `docs/EVAL.md`.
 
 ## 3. Name similarity
 
-- **Top list:** top 5,000 npm + top 5,000 PyPI by downloads (snapshot in `/fixtures/top-*.json`).
+- **Top list:** top 5,000 npm + top 5,000 PyPI by downloads (snapshot in `packages/core/src/data/top-{npm,pypi}.json`, built by `scripts/build-top-lists.mjs`).
 - **Normalize:** lowercase, PyPI PEP 503 normalization (`[-_.]+` → `-`), strip scope for comparison.
 - **Typosquat:** Damerau-Levenshtein ≤ 2 (≤ 1 if length < 6), plus homoglyph map (`l/1/i`, `o/0`, `rn/m`).
 - **Conflation:** split on `-`/`_`/camelCase into tokens; flag if the token set ⊆ union of tokens of two top
@@ -95,8 +96,10 @@ Key → daemon:
 ```json
 {"t":"res","id":"a1b2","ok":true,"ctr":42,"sig":"<ed25519 over id|h|n|exp|ok|ctr>"}
 ```
-Daemon verifies with the paired public key, checks `exp`, nonce unused, `ctr` > last. Web/passkey path is
-equivalent: WebAuthn assertion over the same challenge (`id|h|n|exp`).
+Daemon verifies with the paired public key, checks `exp`, nonce unused, `ctr` > last. Before each `req` the
+daemon sends `{"t":"time","now":<unix s>}`; the Key has no RTC and uses it (plus `millis()`) to time out at
+`min(120 s, exp)`. Full wire spec: `firmware/README.md`. Web/passkey path is equivalent: WebAuthn assertion
+over the challenge `base64url("ladon:v1|id|h|n|exp|approve")` (or `…|reject`), so the decision is signed too.
 **Threat model note:** protects against a hijacked *agent*. A fully compromised OS user account can tamper
 with the daemon itself — document this honestly; out of scope for the week.
 
@@ -127,7 +130,7 @@ pnpm --filter @ladon/cli build && node packages/cli/dist/index.js init --shell -
 pnpm demo:registry            # Verdaccio on 127.0.0.1:4873, config in demo/verdaccio/config.yaml
 pnpm demo:publish-canaries && pnpm demo:install-canary
 # Firmware
-cd firmware && pio run -t upload && npx ladon key pair
+cd firmware && pio run -t upload && cd .. && node packages/cli/dist/index.js key pair   # not `npx ladon`: that would fetch an unrelated public npm package
 ```
 
 ## 10. Credits & AI disclosure

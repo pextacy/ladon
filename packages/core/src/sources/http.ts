@@ -65,7 +65,35 @@ export async function fetchBytes(source: string, url: string, maxBytes: number, 
   if (!res.ok) throw new SourceError(source, `download HTTP ${res.status}`, res.status);
   const len = Number(res.headers.get("content-length") ?? "0");
   if (len > maxBytes) throw new SourceError(source, `archive too large (${len} bytes)`);
-  const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.byteLength > maxBytes) throw new SourceError(source, `archive too large (${buf.byteLength} bytes)`);
-  return buf;
+  if (!res.body) {
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.byteLength > maxBytes) throw new SourceError(source, `archive too large (${buf.byteLength} bytes)`);
+    return buf;
+  }
+  // stream with the cap enforced as bytes arrive: a lying / missing content-length can't make us buffer gigabytes
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new SourceError(source, `archive too large (> ${maxBytes} bytes)`);
+      }
+      chunks.push(value);
+    }
+  } catch (e) {
+    if (e instanceof SourceError) throw e;
+    throw new SourceError(source, `download from ${new URL(url).host} failed (${e instanceof Error ? e.name : "error"})`);
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.byteLength;
+  }
+  return out;
 }

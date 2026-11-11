@@ -55,7 +55,9 @@ describe("parseInstallCommand — npm family", () => {
 describe("parseInstallCommand — python family", () => {
   it.each([
     ["pip install requests", ["pypi:requests"]],
-    ["pip3 install 'requests==2.31.0' flask>=2", ["pypi:requests@2.31.0", "pypi:flask@>=2"]],
+    ["pip3 install 'requests==2.31.0' 'flask>=2'", ["pypi:requests@2.31.0", "pypi:flask@>=2"]],
+    // unquoted: the shell redirects stdout to a file named "=2"; pip installs plain flask
+    ["pip install flask>=2", ["pypi:flask"]],
     ["python -m pip install -U numpy", ["pypi:numpy"]],
     ["python3 -m pip install --index-url http://x/simple pkg", ["pypi:pkg"]],
     ["uv add httpx", ["pypi:httpx"]],
