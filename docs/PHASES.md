@@ -58,8 +58,8 @@ Rule: after Phase 2 there is always a working end-to-end demo. Each phase ends d
 
 ## Phase 6 — Design & UX (Nov 13)
 - [x] Terminal output: one-line verdict, reasons, what to do next — readable in 3 s.
-- [ ] Key screen layout tested on 3 people; web checker + Atlas polished, accessible (contrast, keyboard,
-      shape+word not colour only).
+- [ ] Key screen layout tested on 3 people *(human)*; [x] web checker + Atlas accessible (WCAG AA contrast
+      in light + dark, skip link, visible focus, keyboard-only controls, shape+word not colour only).
 - [x] Dashboard: recent decisions, blocked attempts.
 - [x] README with diagram + confusion matrix; [ ] GIFs *(human)*.
 
