@@ -1,7 +1,7 @@
 import type { Ecosystem, InstallTarget } from "../schemas.js";
 import { basename, effectiveCommands } from "./shell.js";
 
-export type Manager = "npm" | "pnpm" | "yarn" | "bun" | "pip" | "uv" | "poetry" | "pipx";
+export type Manager = "npm" | "pnpm" | "yarn" | "bun" | "pip" | "uv" | "poetry" | "pipx" | "pipenv";
 
 /**
  * - add:      installs named packages (npm i foo)
@@ -19,6 +19,11 @@ export interface ParsedInstall {
   nonRegistry: string[];
   /** pip -r / -c files */
   requirementFiles: string[];
+  /**
+   * Local Python project directories being installed (`pip install .`, `pip install -e ./pkg`): the
+   * project itself is the user's code; its dependencies come from its pyproject.toml.
+   */
+  projectDirs?: string[];
   /** custom registry / index URL passed on the command line */
   registry?: string;
   argv: string[];
@@ -55,7 +60,7 @@ function parseWords(words: string[]): ParsedInstall | null {
   const bin = basename(head).replace(/\.(cmd|exe)$/i, "");
   const rest = words.slice(1);
 
-  if (bin === "npx" || bin === "bunx") return npmExec(bin === "npx" ? "npm" : "bun", rest, words);
+  if (bin === "npx" || bin === "bunx" || bin === "pnpx") return npmExec(bin === "npx" ? "npm" : bin === "pnpx" ? "pnpm" : "bun", rest, words);
   if (bin === "uvx") return pyExec("uv", rest, words);
 
   if (bin === "npm") {
@@ -97,11 +102,24 @@ function parseWords(words: string[]): ParsedInstall | null {
   if (/^pip(\d+(\.\d+)?)?$/.test(bin)) pyArgs = rest;
   else if (/^python(\d+(\.\d+)?)?$/.test(bin) || bin === "py") {
     const m = rest.indexOf("-m");
-    if (m >= 0 && /^pip(\d+(\.\d+)?)?$/.test(rest[m + 1] ?? "")) pyArgs = rest.slice(m + 2);
+    const mod = m >= 0 ? rest[m + 1] ?? "" : /^-m(\S+)$/.exec(rest.find((a) => /^-m\S+$/.test(a)) ?? "")?.[1] ?? "";
+    const after = m >= 0 ? rest.slice(m + 2) : rest.slice(rest.findIndex((a) => /^-m\S+$/.test(a)) + 1);
+    if (/^pip(\d+(\.\d+)?)?$/.test(mod)) pyArgs = after;
+    else if (mod === "uv") return parseWords(["uv", ...after]);
   } else if (bin === "uv") {
     const { sub, args } = subcommand(rest, PIP_VALUE_FLAGS);
     manager = "uv";
-    if (sub === "pip") pyArgs = args;
+    if (sub === "pip") {
+      const p = subcommand(args, PIP_VALUE_FLAGS);
+      if (p.sub === "sync") {
+        // uv pip sync requirements.txt [pyproject.toml]: every positional is a requirements source
+        const { pos } = positionals(p.args, PIP_VALUE_FLAGS);
+        const r = pipLike("uv", p.args.filter((x) => !pos.includes(x)), words, "manifest");
+        r.requirementFiles.push(...pos);
+        return r;
+      }
+      pyArgs = args;
+    }
     else if (sub === "add") return pipLike("uv", args, words, "add");
     else if (sub === "tool") {
       const t = subcommand(args, PIP_VALUE_FLAGS);
@@ -113,7 +131,12 @@ function parseWords(words: string[]): ParsedInstall | null {
   } else if (bin === "poetry") {
     const { sub, args } = subcommand(rest, PIP_VALUE_FLAGS);
     if (sub === "add") return pipLike("poetry", args, words, "add");
-    if (sub === "install") return pipLike("poetry", args, words, "manifest");
+    if (sub === "install" || sub === "sync") return pipLike("poetry", args, words, "manifest");
+    return null;
+  } else if (bin === "pipenv") {
+    const { sub, args } = subcommand(rest, PIP_VALUE_FLAGS);
+    if (sub === "install") return pipLike("pipenv", args, words, args.some(isPositional) ? "add" : "manifest");
+    if (sub === "sync") return pipLike("pipenv", args, words, "manifest");
     return null;
   } else if (bin === "pipx") {
     const { sub, args } = subcommand(rest, PIP_VALUE_FLAGS);
@@ -254,16 +277,29 @@ function pipLike(manager: Manager, args: string[], argv: string[], kind: Install
   const res: ParsedInstall = { manager, ecosystem: "pypi", kind, targets: [], nonRegistry: [], requirementFiles: [], argv };
   const reqs = [...(flags.get("-r") ?? []), ...(flags.get("--requirement") ?? []), ...(flags.get("-c") ?? []), ...(flags.get("--constraint") ?? [])];
   res.requirementFiles.push(...reqs);
-  for (const e of [...(flags.get("-e") ?? []), ...(flags.get("--editable") ?? [])]) res.nonRegistry.push(e);
+  for (const e of [...(flags.get("-e") ?? []), ...(flags.get("--editable") ?? [])]) {
+    if (isLocalDir(e)) (res.projectDirs ??= []).push(e);
+    else res.nonRegistry.push(e);
+  }
   const idx = flags.get("-i")?.[0] ?? flags.get("--index-url")?.[0] ?? flags.get("--extra-index-url")?.[0] ?? flags.get("--index")?.[0];
   if (idx) res.registry = idx;
   for (const p of pos) {
+    if (isLocalDir(p)) {
+      (res.projectDirs ??= []).push(p);
+      continue;
+    }
     const r = parsePipSpec(p);
     if (r.target) res.targets.push(r.target);
     if (r.nonRegistry) res.nonRegistry.push(r.nonRegistry);
   }
-  if (reqs.length > 0 && res.targets.length === 0) res.kind = "manifest";
+  if ((reqs.length > 0 || res.projectDirs) && res.targets.length === 0) res.kind = "manifest";
   return res;
+}
+
+/** `.`, `./pkg`, `../x`, `/abs/dir` (optionally with `[extras]`) — not an archive or URL. */
+function isLocalDir(spec: string): boolean {
+  const s = spec.replace(/\[[^\]]*\]$/, "");
+  return (s === "." || s === ".." || /^(\.{1,2}\/|\/|~\/)/.test(s)) && !/\.(whl|tar\.gz|tgz|zip)$/.test(s);
 }
 
 function pyExec(manager: Manager, args: string[], argv: string[]): ParsedInstall {

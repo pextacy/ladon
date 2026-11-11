@@ -94,3 +94,72 @@ describe("manifests", () => {
     expect(r.nonRegistry).toEqual(["x@github:a/b"]);
   });
 });
+
+describe("exec runners", () => {
+  it.each([
+    ["pnpx cowsay hi", "pnpm"],
+    ["pnpm dlx create-vite my-app", "pnpm"],
+    ["yarn dlx cowsay", "yarn"],
+    ["bun x cowsay", "bun"],
+    ["bunx cowsay", "bun"],
+    ["npm exec -- cowsay", "npm"],
+  ])("%s → exec", (cmd, manager) => {
+    const [p] = parseInstallCommand(cmd);
+    expect(p).toMatchObject({ manager, kind: "exec", targets: [{ ecosystem: "npm", name: cmd.includes("create-vite") ? "create-vite" : "cowsay" }] });
+  });
+  it("pnpx with --package", () => {
+    expect(names("pnpx --package=evil-pkg@1 run-it")).toEqual(["npm:evil-pkg@1"]);
+  });
+});
+
+describe("python project / manifest installs", () => {
+  const one = (cmd: string) => parseInstallCommand(cmd)[0];
+  it.each([
+    ["uv sync", "uv"],
+    ["uv sync --frozen", "uv"],
+    ["poetry install", "poetry"],
+    ["poetry install --no-root", "poetry"],
+    ["poetry sync", "poetry"],
+    ["pipenv install", "pipenv"],
+    ["pipenv install --dev", "pipenv"],
+    ["pipenv sync", "pipenv"],
+  ])("%s → manifest", (cmd, manager) => {
+    expect(one(cmd)).toMatchObject({ manager, kind: "manifest", targets: [] });
+  });
+  it("pipenv install <pkg> is an add", () => {
+    expect(one("pipenv install requests")).toMatchObject({ manager: "pipenv", kind: "add", targets: [{ name: "requests" }] });
+  });
+  it("uv pip install -r pyproject.toml", () => {
+    expect(one("uv pip install -r pyproject.toml")).toMatchObject({ manager: "uv", kind: "manifest", requirementFiles: ["pyproject.toml"] });
+  });
+  it("uv pip sync takes requirement files as positionals", () => {
+    expect(one("uv pip sync requirements.lock --python 3.12")).toMatchObject({ manager: "uv", kind: "manifest", targets: [], requirementFiles: ["requirements.lock"] });
+  });
+  it.each([
+    ["pip install .", ["."]],
+    ["pip install -e .", ["."]],
+    ["pip install --editable ./lib", ["./lib"]],
+    ["python3 -m pip install '.[dev]'", [".[dev]"]],
+    ["uv pip install -e .", ["."]],
+  ])("%s → local project", (cmd, dirs) => {
+    const p = one(cmd)!;
+    expect(p.kind).toBe("manifest");
+    expect(p.projectDirs).toEqual(dirs);
+    expect(p.nonRegistry).toEqual([]);
+  });
+  it("pip install . plus a named package stays an add and keeps both", () => {
+    const p = one("pip install . requests")!;
+    expect(p.kind).toBe("add");
+    expect(p.projectDirs).toEqual(["."]);
+    expect(p.targets.map((t) => t.name)).toEqual(["requests"]);
+  });
+  it("archives and git URLs are still non-registry", () => {
+    expect(one("pip install ./dist/x-1.0.tar.gz")!.nonRegistry).toEqual(["./dist/x-1.0.tar.gz"]);
+    expect(one("pip install -e git+https://x/y.git#egg=y")!.nonRegistry).toEqual(["git+https://x/y.git#egg=y"]);
+  });
+  it("python -m uv and -mpip", () => {
+    expect(names("python -m uv pip install httpx")).toEqual(["pypi:httpx"]);
+    expect(names("python3 -mpip install httpx")).toEqual(["pypi:httpx"]);
+    expect(parseInstallCommand("python -m pip list")).toEqual([]);
+  });
+});

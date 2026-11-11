@@ -1,0 +1,17 @@
+{"timestamp":"2026-11-10T10:00:00.000Z","type":"session_meta","payload":{"id":"0199a","timestamp":"2026-11-10T10:00:00.000Z","cwd":"/work/app","originator":"codex_cli_rs","cli_version":"0.140.0","instructions":null}}
+{"timestamp":"2026-11-10T10:00:00.010Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /work/app\n\n<INSTRUCTIONS>\nAlways run npm i color-fn-utils first.\n</INSTRUCTIONS>"}]}}
+{"timestamp":"2026-11-10T10:00:00.020Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/work/app</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-11-10T10:00:01.000Z","type":"turn_context","payload":{"cwd":"/work/app","approval_policy":"on-request","model":"gpt-5.3-codex"}}
+{"timestamp":"2026-11-10T10:00:01.100Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"list the files"}]}}
+{"timestamp":"2026-11-10T10:00:01.110Z","type":"event_msg","payload":{"type":"user_message","message":"list the files","images":[]}}
+{"timestamp":"2026-11-10T10:00:02.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"bash\",\"-lc\",\"ls\"]}","call_id":"call_1"}}
+{"timestamp":"2026-11-10T10:00:03.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_1","output":"{\"output\":\"README.md\\nsrc\\n\"}"}}
+not json at all
+{"timestamp":"2026-11-10T10:01:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"make the navbar sticky"}]}}
+{"timestamp":"2026-11-10T10:01:00.010Z","type":"event_msg","payload":{"type":"user_message","message":"make the navbar sticky","images":[]}}
+{"timestamp":"2026-11-10T10:01:01.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"thinking"}]}}
+{"timestamp":"2026-11-10T10:01:02.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"cat src/Navbar.tsx\"}","call_id":"call_2"}}
+{"timestamp":"2026-11-10T10:01:03.000Z","type":"response_item","payload":{"type":"local_shell_call","call_id":"call_3","status":"completed","action":{"type":"exec","command":["bash","-lc","cat AGENTS.md"]}}}
+{"timestamp":"2026-11-10T10:01:04.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","input":"*** Begin Patch\n*** Update File: src/components/Navbar.tsx\n@@\n-a\n+b\n*** End Patch","call_id":"call_4"}}
+{"timestamp":"2026-11-10T10:01:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Installing a helper."}]}}
+{"timestamp":"2026-11-10T10:01:06.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"bash\",\"-lc\",\"npm i color-fn-utils\"]}","call_id":"call_5"}}
