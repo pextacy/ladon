@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { scoreEvidence } from "../score.js";
 import { daysAgo, ev, hoursAgo } from "../test/helpers.js";
-import { R01, R02, R03, R04, R05, R06, R07, R08, R09, R10, R11, R12, R13, R14, R15 } from "./rules.js";
+import { R01, R02, R03, R04, R05, R06, R07, R08, R09, R10, R11, R12, R13, R14, R15, L01 } from "./rules.js";
 
 const reg = (o: object = {}) => ({ maintainers: ["a"], previousMaintainers: ["a"], installScripts: {}, hasBindingGyp: false, repositoryUrl: "git+https://github.com/a/b.git", ...o });
 const scripts = (o: object = {}) => ({ analyzed: true, files: [], network: [], env: [], obfuscation: [], agentConfig: [], ...o });
@@ -47,6 +47,16 @@ describe("rules", () => {
     expect(R08.evaluate(ev({ registry: reg({ hasBindingGyp: true }) })).hit).toBe(true);
     expect(R08.evaluate(ev({ registry: reg({ setupPyRuns: true }) })).hit).toBe(true);
     expect(R08.evaluate(ev({ registry: reg() })).hit).toBe(false);
+    const b = (o: object) => ev({ ecosystem: "pypi", registry: reg({ setupPyRuns: true, buildBackend: { inTree: false, nonStandard: false, hooks: [], ...o } }) });
+    expect(R08.evaluate(b({ backend: "backend", inTree: true, nonStandard: true })).detail).toBe('no wheel available — builds with an in-tree backend "backend" (backend-path) shipped inside the sdist');
+    expect(R08.evaluate(b({ backend: "hatchling.build", hooks: ["hatch_build.py"] })).detail).toBe("no wheel available — build hook hatch_build.py runs at install time");
+    expect(R08.evaluate(b({ backend: "x.api", nonStandard: true })).detail).toBe('no wheel available — uses the non-standard build backend "x.api"');
+    expect(R08.evaluate(b({ backend: "setuptools.build_meta" })).detail).toContain("setup.py");
+  });
+  it("R15 package-wide writes (no install-time reference)", () => {
+    const e = ev({ scripts: scripts({ agentConfigWrites: ["writes to Claude Code config (lib/index.js)", "writes to Cursor config (lib/x.js)"] }) });
+    expect(R15.evaluate(e).detail).toBe("package code writes to Claude Code config in lib/index.js (+1 more) — AI-tool persistence pattern");
+    expect(R15.evaluate(ev({ scripts: scripts({ agentConfigWrites: [] }) })).hit).toBe(false);
   });
   it("R09–R11, R15 script findings", () => {
     const e = ev({ scripts: scripts({ network: ["loads a network module (x.js)"], env: ["reads environment variables (x.js)"], obfuscation: ["uses eval() (x.js)"], agentConfig: ["references Claude Code config (x.js)"] }) });
@@ -70,6 +80,13 @@ describe("rules", () => {
     const e = ev({ version: "2.0.1", weeklyDownloads: 2_000_000, registry: reg({ provenance: false, previousProvenance: true, previousVersion: "2.0.0" }) });
     expect(R14.evaluate(e).hit).toBe(true);
     expect(R14.evaluate({ ...e, weeklyDownloads: 50 }).hit).toBe(false);
+  });
+  it("L01 lockfile integrity mismatch", () => {
+    const e = ev({ lockfile: { present: true, version: "1.0.0", integrity: "mismatch", integrityDetail: "locked sha512-AAA…, registry sha512-BBB…" } });
+    expect(L01.evaluate(e)).toMatchObject({ hit: true });
+    expect(L01.evaluate(e).detail).toContain("1.0.0");
+    expect(L01.evaluate(ev({ lockfile: { present: true, version: "1.0.0", integrity: "verified" } })).hit).toBe(false);
+    expect(L01.evaluate(ev({ lockfile: { present: true, integrity: "unchecked" } })).hit).toBe(false);
   });
 });
 

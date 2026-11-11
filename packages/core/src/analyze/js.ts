@@ -4,6 +4,8 @@ export interface JsAstFindings {
   parsed: boolean;
   dynamicExec: boolean;
   evalLike: boolean;
+  /** which eval-like calls were seen: "eval" (incl. x.eval) and/or "Function" (call or new) */
+  evalKinds: ("eval" | "Function")[];
   requires: string[];
 }
 
@@ -21,7 +23,7 @@ function isStatic(n: AnyNode | undefined): boolean {
 
 /** AST pass (acorn): child_process calls with non-literal commands, eval/Function, and local requires. */
 export function analyzeJsAst(code: string): JsAstFindings {
-  const out: JsAstFindings = { parsed: false, dynamicExec: false, evalLike: false, requires: [] };
+  const out: JsAstFindings = { parsed: false, dynamicExec: false, evalLike: false, evalKinds: [], requires: [] };
   let ast: Node;
   try {
     ast = parse(code, { ecmaVersion: "latest", sourceType: "module", allowHashBang: true, allowReturnOutsideFunction: true, allowAwaitOutsideFunction: true });
@@ -47,7 +49,11 @@ export function analyzeJsAst(code: string): JsAstFindings {
         const args = node.arguments as AnyNode[];
         const fn =
           callee.type === "Identifier" ? (callee.name as string) : callee.type === "MemberExpression" && (callee.property as AnyNode).type === "Identifier" ? ((callee.property as AnyNode).name as string) : undefined;
-        if (fn === "eval" || (fn === "Function" && callee.type === "Identifier")) out.evalLike = true;
+        const kind = fn === "eval" ? "eval" : fn === "Function" && callee.type === "Identifier" ? "Function" : undefined;
+        if (kind) {
+          out.evalLike = true;
+          if (!out.evalKinds.includes(kind)) out.evalKinds.push(kind);
+        }
         if (fn && EXEC_FNS.has(fn) && !isStatic(args[0])) out.dynamicExec = true;
         if (fn === "require" && callee.type === "Identifier" && args[0]?.type === "Literal" && typeof args[0].value === "string") out.requires.push(args[0].value);
       }

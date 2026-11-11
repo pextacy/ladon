@@ -33,9 +33,12 @@ export const ENV: Pattern[] = [
   { re: /Login Data|Local State|Keychain|\.mozilla\/firefox|wallet\.dat|\.solana|\.ethereum/i, label: "touches browser or wallet secrets" },
 ];
 
+export const EVAL_LABEL = "uses eval()";
+export const FUNCTION_LABEL = "builds code with Function()";
+
 export const OBFUSCATION: Pattern[] = [
-  { re: /\beval\s*\(/, label: "uses eval()" },
-  { re: /\bnew\s+Function\s*\(|(?<![\w.])Function\s*\(\s*['"`]/, label: "builds code with Function()" },
+  { re: /\beval\s*\(/, label: EVAL_LABEL },
+  { re: /\bnew\s+Function\s*\(|(?<![\w.])Function\s*\(\s*['"`]/, label: FUNCTION_LABEL },
   { re: /[A-Za-z0-9+/]{200,}={0,2}/, label: "contains a long base64 blob" },
   { re: /(?:\\x[0-9a-fA-F]{2}){40,}|['"][0-9a-fA-F]{200,}['"]/, label: "contains a long hex blob" },
   { re: /String\.fromCharCode\((?:\s*\d+\s*,){20,}/, label: "decodes char codes" },
@@ -70,3 +73,32 @@ export function matchAll(text: string, patterns: Pattern[]): string[] {
   for (const p of patterns) if (p.re.test(text)) out.add(p.label);
   return [...out];
 }
+
+/**
+ * Package-wide R15 (files that are not install-time code): only AI-tool config files that grant
+ * execution or persistence, and only where they are used as a *write target* (see agentConfigWrites).
+ * Instruction markdown (AGENTS.md, CLAUDE.md) and bare mentions are left to the install-time scan, so
+ * documentation, MCP setup guides and scaffolders that only *mention* these paths stay quiet.
+ */
+// "/" or a path.join(..., ".claude", "x") / join(join(h, ".claude"), "x") / Path(".claude") / "x" boundary
+const SEP = String.raw`(?:[\\/]|['"\x60](?:\s*\))*\s*[,/+]\s*['"\x60])`;
+export const AGENT_CONFIG_TARGETS: { family: string; label: string; re: string }[] = [
+  { family: "claude", label: "Claude Code config", re: String.raw`\.claude${SEP}(?:settings(?:\.local)?\.json|hooks|commands|agents)|\.claude\.json|claude_desktop_config\.json` },
+  { family: "cursor", label: "Cursor config", re: String.raw`\.cursor${SEP}(?:mcp\.json|rules)|\.cursorrules` },
+  { family: "vscode", label: "VS Code tasks/settings", re: String.raw`\.vscode${SEP}(?:tasks|settings|mcp)\.json` },
+  { family: "mcp", label: "MCP server config", re: String.raw`(?:^|[\\/'"\x60])\.?mcp\.json` },
+  { family: "codex", label: "Codex config", re: String.raw`\.codex${SEP}(?:config\.toml|hooks)` },
+  { family: "gemini", label: "Gemini CLI config", re: String.raw`\.gemini${SEP}settings\.json` },
+  { family: "windsurf", label: "Windsurf config", re: String.raw`\.windsurf(?:rules|${SEP}(?:mcp_config\.json|rules))|\.codeium[\\/]windsurf` },
+  { family: "continue", label: "Continue config", re: String.raw`\.continue${SEP}config\.(?:json|ya?ml|ts)` },
+  { family: "cline", label: "Cline config", re: String.raw`\.clinerules|cline_mcp_settings\.json` },
+];
+
+/** Agent CLIs writing their *own* config is their job, not a persistence trick. */
+export const AGENT_CONFIG_OWNERS: Record<string, string[]> = {
+  "@anthropic-ai/claude-code": ["claude", "mcp"],
+  "@openai/codex": ["codex"],
+  "@google/gemini-cli": ["gemini"],
+  "@continuedev/cli": ["continue"],
+};
+

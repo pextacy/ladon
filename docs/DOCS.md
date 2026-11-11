@@ -23,15 +23,15 @@ Hard overrides (always hold, score = 100): OSV `MAL-` advisory match; package do
 | R04 `typosquat` | Damerau-Levenshtein ≤ 2 to a top-5k package, not itself top-5k | +25 | |
 | R05 `conflation` | name = tokens of two popular packages merged (e.g. `react-codeshift`) | +20 | token-set match, §3 |
 | R06 `very_new` | first publish < 7 days | +20 | < 72 h → +30 |
-| R07 `new_version_spike` | requested version published < 48 h AND maintainers changed vs previous | +30 | worm pattern |
-| R08 `install_script` | has preinstall/install/postinstall/prepare or `binding.gyp` (npm), `setup.py` with exec (PyPI sdist) | +15 | base |
+| R07 `new_version_spike` | requested version published < 48 h AND maintainers changed vs previous | +30 | worm pattern. npm: `maintainers` + `_npmUser`. PyPI (no per-file uploader in the JSON API): author/maintainer e-mails (names if no e-mail) from `/pypi/<name>/<ver>/json` of both versions, plus the PEP 740 Trusted Publisher as publisher; fetched only for versions < 48 h old |
+| R08 `install_script` | has preinstall/install/postinstall/prepare or `binding.gyp` (npm), `setup.py` with exec (PyPI sdist), or a pyproject-only sdist whose PEP 517 build runs package code: in-tree backend (`backend-path`), build hooks (`[tool.hatch.*.hooks.custom]` → hatch_build.py, poetry `build` script, pdm_build.py) or a non-standard `build-backend` | +15 | base |
 | R09 `script_network` | install script touches `http`, `https`, `net`, `fetch`, `curl`, `wget`, DNS | +25 | static |
 | R10 `script_env` | install script reads `process.env`, `.npmrc`, `~/.ssh`, cloud cred paths | +25 | |
 | R11 `script_obfuscation` | `eval`, `Function(`, long base64/hex blobs, `child_process` with dynamic strings | +20 | |
 | R12 `low_downloads` | < 100 weekly downloads AND not in lockfile | +10 | |
-| R13 `repo_mismatch` | `repository` missing or points to repo that doesn't reference this package | +10 | |
-| R14 `no_provenance` | popular package (> 100k/wk) whose new version lacks provenance that previous had | +25 | |
-| R15 `agent_config_write` | package files reference `.claude/`, `.cursor/`, `.vscode/tasks.json`, MCP configs | +30 | Aug 2026 worm pattern |
+| R13 `repo_mismatch` | `repository` missing or points to repo that doesn't reference this package | +10 | GitHub, GitLab (nested groups), Codeberg and Bitbucket via public raw-file URLs (`package.json` name; `pyproject.toml`/`setup.cfg`/`setup.py` for PyPI). Unreadable/private repos (e.g. a sign-in page) are "not verified", never a mismatch |
+| R14 `no_provenance` | popular package (> 100k/wk) whose new version lacks provenance that previous had | +25 | npm: `dist.attestations`. PyPI: PEP 740 `GET /integrity/<project>/<ver>/<file>/provenance` (404 = none) on the sdist (else first wheel) of both versions |
+| R15 `agent_config_write` | install-time code references `.claude/`, `.cursor/`, `.vscode/tasks.json`, MCP configs, agent instruction files; **or** any other code file in the npm package *writes* a home-directory AI-tool config (`~/.claude/settings*.json`, `.claude/hooks|commands|agents`, `.claude.json`, `claude_desktop_config.json`, `~/.cursor/mcp.json`, `.vscode/{tasks,settings,mcp}.json`, `mcp.json`, `.codex/config.toml`, `.gemini/settings.json`, Windsurf/Continue/Cline configs) | +30 | Aug 2026 worm pattern; never discounted. Package-wide scan: ≤ 200 code files (`.js/.mjs/.cjs/.ts/.py/.sh/.ps1`, not tests/examples/docs/`.d.ts`), ≤ 2 MB total, same tarball fetch. A path only counts as the destination of a write call (`fs.writeFile*`/`appendFile*`/`createWriteStream`/fs-extra first argument, copy/rename/symlink destination, Python `open(…,"w")`/`write_text`/`shutil.copy`, shell `>`/`tee`/`cp`), with identifiers resolved through their assignments, and only when anchored in the home/app-data directory (`os.homedir()`, `$HOME`, `~/`, `APPDATA`, `Path.home()`…). Docs prose, reads and project-relative scaffolding (e.g. `playwright init-agents`) don't count; agent CLIs writing their own config (`@anthropic-ai/claude-code`, `@openai/codex`, `@google/gemini-cli`, …) are exempt for that tool's family. Verified quiet on ~1,500 installed packages |
 
 Score = min(100, Σ weights). Every hit carries a human-readable `detail` string.
 Weights are hackathon defaults; tune on the fixture corpus and document changes here.
@@ -44,7 +44,15 @@ Weights are hackathon defaults; tune on the fixture corpus and document changes 
 | G01 `non_registry_source` | git URL / tarball URL / local path spec | +35 | can't be verified (CLI gate) |
 | G02 `custom_registry` | `--registry` to a non-default, non-loopback registry | +30 | CLI gate |
 | G03 `exec` | `npx` / `uvx` / `dlx` — runs immediately | 0 | shown as a reason only |
+| L01 `lockfile_integrity_mismatch` | the lockfile pins the requested version with a hash (`integrity` / `resolution.integrity` / uv·poetry·pdm `hash` / `--hash`) that the registry does not publish for that version (npm `dist.integrity`/`shasum`, PyPI file `sha256`) | +60 | lockfile or registry tampered; the fast path is skipped and the full check runs |
 | AI1 `intent_drift_*` | LLM intent judge (§5) | 0 | strong drift escalates allow→warn, warn→hold; never lowers |
+
+**Lockfile fast path (PLAN §1 step 2).** A requested version that is already pinned in a lockfile
+(semver range for npm, PEP 440 specifier for PyPI) is allowed without the full check. When the
+lockfile records a hash for that version, the fast path first compares it with the registry's
+(one cached packument / project-JSON fetch): match → `evidence.lockfile.integrity = "verified"`;
+mismatch → L01 + full check; registry unreachable or no common hash algorithm → `"unchecked"` and
+the fast path proceeds as before, without claiming integrity. No hash recorded → no network, no claim.
 
 **Established-package discount (tuned on the corpus):** when a package has ≥ 100k weekly downloads, was
 first published ≥ 180 days ago and the requested version is ≥ 7 days old, R08–R11 and R13 are shown but
@@ -63,7 +71,11 @@ discount esbuild scored 95 (hold). Results: `docs/EVAL.md`.
 ## 4. Install-script static analysis
 
 npm: download tarball metadata only (`dist.tarball`) into memory, read `package.json` scripts and the files
-those scripts invoke (max 2 MB, max depth 2). PyPI: inspect `setup.py` in sdist / skip wheels with no hooks.
+those scripts invoke (max 2 MB, max depth 2). PyPI (only when no wheel exists, so pip must build the sdist): inspect `setup.py`; for pyproject-only
+sdists read `[build-system]` — `backend-path` means the backend's code ships in the sdist (its module file
+is analysed), hatch/poetry/pdm build hooks are analysed, and a backend outside the well-known list
+(setuptools, hatchling, flit_core, poetry-core, pdm-backend, maturin, scikit-build-core, meson-python,
+sip, uv_build, …) is reported as non-standard.
 Use regex + a JS tokenizer (`acorn`) for JS; plain regex for Python. **Never execute anything.**
 
 ## 5. Intent judge (LLM)
@@ -80,8 +92,14 @@ Output (Zod):
 ```json
 { "drift": "none|weak|strong", "reason": "≤ 160 chars", "suspectedSource": "user|instruction_file|tool_output|unknown" }
 ```
-Rules: drift can raise `warn → hold` (strong) but can **never lower** a score. Temperature 0. One retry on
-schema failure, then ignore. Claude Code hook input provides `transcript_path`; we read the last user turn.
+Rules: drift can raise `warn → hold` (strong) but can **never lower** a score. One retry on
+schema failure, then ignore. **No temperature parameter:** the plan called for temperature 0, but
+`@anthropic-ai/sdk` 1.x sends API version `2026-10-21`, which rejects `temperature`/`top_p`/`top_k` with
+a 400 on every model (and the default `claude-opus-5-5` has no sampling parameters at all). Output is
+kept stable by the structured-output schema (enum `drift`/`suspectedSource`, length-capped reason),
+`effort: "low"`, local Zod validation, and a **verdict cache**: a judged input (SHA-256 of the exact JSON
+sent) returns the same stored result for 24 h, so a retried install always gets the same decision.
+Claude Code hook input provides `transcript_path`; we read the last user turn.
 Codex hook input also provides `transcript_path` (rollout JSONL; `parseCodexTranscript`, skipping injected
 `AGENTS.md` / `<environment_context>` turns). Cursor has no transcript: its `beforeSubmitPrompt` hook stores the
 last 5 prompts + shell steps per `conversation_id` in `~/.ladon/sessions/<id>.json` (0600, pruned after 24 h,

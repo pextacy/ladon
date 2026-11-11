@@ -1,16 +1,17 @@
 import semver from "semver";
 import { analyzeNpmTarball, analyzeSdist, installScriptsOf } from "./analyze/scripts.js";
-import { emptyEvidence, type Evidence, type RegistryEvidence } from "./evidence.js";
-import type { LockfileIndex } from "./lockfile.js";
+import { ageMs, emptyEvidence, HOUR, type Evidence, type RegistryEvidence } from "./evidence.js";
+import { compareIntegrity, type LockfileIndex } from "./lockfile.js";
+import { parsePep440Specifier, satisfiesPep440 } from "./parse/pep440.js";
 import { scoreEvidence, type Hit, type ScoreOptions } from "./score.js";
 import type { InstallTarget, Verdict } from "./schemas.js";
 import { defaultTopList, findConflation, findTyposquat, isTop, type TopList } from "./similarity/index.js";
 import type { AtlasSource } from "./sources/atlas.js";
 import { cached, TTL, type Cache } from "./sources/cache.js";
 import { SourceError } from "./sources/http.js";
-import { previousNpmVersion, resolveNpmVersion, type NpmSource } from "./sources/npm.js";
+import { npmRegistryIntegrity, previousNpmVersion, resolveNpmVersion, type NpmSource } from "./sources/npm.js";
 import type { OsvSource } from "./sources/osv.js";
-import { resolvePypiVersion, type PypiSource } from "./sources/pypi.js";
+import { previousPypiVersion, provenanceFile, resolvePypiVersion, type PypiSource } from "./sources/pypi.js";
 import type { RepoSource } from "./sources/repo.js";
 
 export interface CheckDeps {
@@ -61,7 +62,35 @@ function lockedMatch(target: InstallTarget, lock: LockfileIndex | undefined): st
   const versions = lock.versions(target.ecosystem, target.name);
   if (versions.length === 0 || !target.versionSpec) return undefined;
   const spec = target.versionSpec;
-  return versions.find((v) => v === spec || (target.ecosystem === "npm" && semver.validRange(spec) !== null && semver.valid(v) !== null && semver.satisfies(v, spec)));
+  if (target.ecosystem === "pypi") {
+    const pep = parsePep440Specifier(spec);
+    return versions.find((v) => v === spec || (pep !== null && pep.clauses.length > 0 && satisfiesPep440(v, pep, true)));
+  }
+  return versions.find((v) => v === spec || (semver.validRange(spec) !== null && semver.valid(v) !== null && semver.satisfies(v, spec)));
+}
+
+/**
+ * Compare the lockfile's hash for `version` with what the registry publishes (cached packument /
+ * project JSON — the full check reuses it). Fetch problems → "unknown": the fast path then behaves
+ * as before, without claiming integrity.
+ */
+async function lockIntegrity(target: InstallTarget, version: string, locked: string[], deps: CheckDeps): Promise<{ result: "match" | "mismatch" | "unknown"; detail?: string }> {
+  try {
+    let published: string[];
+    if (target.ecosystem === "npm") {
+      const info = await deps.npm.packument(target.name);
+      published = npmRegistryIntegrity(info?.versions[version]);
+    } else {
+      const info = await deps.pypi.project(target.name);
+      published = (info?.releases[version]?.files ?? []).flatMap((f) => (f.sha256 ? [`sha256:${f.sha256}`] : []));
+    }
+    const result = compareIntegrity(locked, published);
+    if (result !== "mismatch") return { result };
+    const short = (t: string) => (t.length > 22 ? `${t.slice(0, 22)}…` : t);
+    return { result, detail: `locked ${short(locked[0]!)}, registry ${short(published[0]!)}` };
+  } catch {
+    return { result: "unknown" };
+  }
 }
 
 export async function checkPackage(target: InstallTarget, deps: CheckDeps, opts: CheckOptions = {}): Promise<Report> {
@@ -74,10 +103,20 @@ export async function checkPackage(target: InstallTarget, deps: CheckDeps, opts:
 
   const fast = lockedMatch(target, opts.lockfile);
   if (fast) {
-    ev.version = fast;
-    ev.exists = true;
-    const r: Report = { target, version: fast, score: 0, verdict: "allow", hits: [], evidence: ev, fastPath: "lockfile", durationMs: Date.now() - started };
-    return r;
+    ev.lockfile.version = fast;
+    const hashes = opts.lockfile!.integrity(target.ecosystem, target.name, fast);
+    const integ = hashes.length > 0 ? await lockIntegrity(target, fast, hashes, deps) : undefined;
+    if (integ?.result === "mismatch") {
+      // the pinned artifact is not what the registry serves for this version → full check + L01
+      ev.lockfile.integrity = "mismatch";
+      if (integ.detail) ev.lockfile.integrityDetail = integ.detail;
+    } else {
+      if (integ) ev.lockfile.integrity = integ.result === "match" ? "verified" : "unchecked";
+      ev.version = fast;
+      ev.exists = true;
+      const r: Report = { target, version: fast, score: 0, verdict: "allow", hits: [], evidence: ev, fastPath: "lockfile", durationMs: Date.now() - started };
+      return r;
+    }
   }
 
   const top = deps.topLists?.[target.ecosystem] ?? defaultTopList(target.ecosystem);
@@ -162,9 +201,9 @@ async function gatherNpm(ev: Evidence, target: InstallTarget, deps: CheckDeps, o
           ev,
           "install-script analysis",
           hasScripts,
-          cached(deps.cache, `analysis:npm:${target.name}@${version}:v1`, TTL.analysis, async () => {
+          cached(deps.cache, `analysis:npm:${target.name}@${version}:v2`, TTL.analysis, async () => {
             const tgz = await deps.npm.tarball(v!.tarball!, 8 * 1024 * 1024);
-            return tgz ? analyzeNpmTarball(regEv.installScripts, tgz) : null;
+            return tgz ? analyzeNpmTarball(regEv.installScripts, tgz, { packageName: target.name }) : null;
           }),
         )
       : Promise.resolve(undefined),
@@ -198,10 +237,16 @@ async function gatherPypi(ev: Evidence, target: InstallTarget, deps: CheckDeps, 
     return;
   }
   ev.exists = true;
-  const version = resolvePypiVersion(info, target.versionSpec);
+  const version = resolvePypiVersion(info, target.versionSpec) ?? info.latest;
   if (version) ev.version = version;
   const rel = version ? info.releases[version] : undefined;
-  const regEv: RegistryEvidence = { maintainers: info.author ? [info.author] : [], previousMaintainers: [], installScripts: {}, hasBindingGyp: false };
+  const prev = version ? previousPypiVersion(info, version) : undefined;
+  const regEv: RegistryEvidence = {
+    maintainers: version === info.latest ? (info.people ?? (info.author ? [info.author] : [])) : info.author ? [info.author] : [],
+    previousMaintainers: [],
+    installScripts: {},
+    hasBindingGyp: false,
+  };
   if (info.created) regEv.firstPublished = info.created;
   if (rel?.time) regEv.versionPublished = rel.time;
   regEv.latest = info.latest;
@@ -209,11 +254,32 @@ async function gatherPypi(ev: Evidence, target: InstallTarget, deps: CheckDeps, 
   if (info.readmeExcerpt) regEv.readmeExcerpt = info.readmeExcerpt;
   if (info.repositoryUrl) regEv.repositoryUrl = info.repositoryUrl;
   if (rel?.sdistUrl) regEv.sdistUrl = rel.sdistUrl;
+  if (prev) regEv.previousVersion = prev.version;
   ev.registry = regEv;
 
+  // R07 only looks at versions < 48 h old: fetch per-version metadata just for those.
+  const age = ageMs(ev, rel?.time);
+  const recent = age !== undefined && age < 48 * HOUR;
+  const pypi = deps.pypi;
+  const people = async (v: string) => (v === info.latest && info.people ? info.people : ((await pypi.release!(target.name, v))?.people ?? null));
+  const peopleP =
+    recent && prev && version && pypi.release
+      ? soft(ev, "PyPI release metadata", false, Promise.all([people(version), people(prev.version)]))
+      : Promise.resolve(undefined);
+
+  const dlP = soft(ev, "pypistats", false, deps.pypi.weeklyDownloads(target.name));
+  // PEP 740 provenance (R14 for popular packages, publisher identity for R07 on recent versions)
+  const provP = dlP.then(async (dl) => {
+    if (!prev || !version || !pypi.provenance || !(recent || (dl ?? 0) > 100_000)) return undefined;
+    const curFile = provenanceFile(rel);
+    const prevFile = provenanceFile(prev, curFile?.packagetype);
+    if (!curFile || !prevFile) return undefined;
+    return soft(ev, "PyPI provenance", false, Promise.all([pypi.provenance(target.name, version, curFile.filename), pypi.provenance(target.name, prev.version, prevFile.filename)]));
+  });
+
   const sdistOnly = !!rel && !rel.hasWheel && !!rel.sdistUrl;
-  const [dl, osv, atlas, repo, setup] = await Promise.all([
-    soft(ev, "pypistats", false, deps.pypi.weeklyDownloads(target.name)),
+  const [dl, osv, atlas, repo, setup, ppl, prov] = await Promise.all([
+    dlP,
     soft(ev, "OSV", true, deps.osv.query("pypi", target.name, version)),
     atlasP,
     deps.repo && (opts.repoCheck ?? true) && regEv.repositoryUrl
@@ -222,23 +288,38 @@ async function gatherPypi(ev: Evidence, target: InstallTarget, deps: CheckDeps, 
     sdistOnly && (opts.analyzeScripts ?? true)
       ? soft(
           ev,
-          "setup.py analysis",
+          "sdist build analysis",
           false,
-          cached(deps.cache, `analysis:pypi:${target.name}@${version}:v1`, TTL.analysis, async () => {
+          cached(deps.cache, `analysis:pypi:${target.name}@${version}:v2`, TTL.analysis, async () => {
             const tgz = await deps.pypi.sdist(rel.sdistUrl!, 8 * 1024 * 1024);
             return tgz ? analyzeSdist(tgz) : null;
           }),
         )
       : Promise.resolve(undefined),
+    peopleP,
+    provP,
   ]);
+  if (ppl) {
+    const [cur, before] = ppl;
+    if (cur) regEv.maintainers = cur;
+    if (before) regEv.previousMaintainers = before;
+  }
+  if (prov) {
+    const [cur, before] = prov;
+    regEv.provenance = cur !== null;
+    regEv.previousProvenance = before !== null;
+    if (cur?.publisher) regEv.publisher = cur.publisher;
+    if (before?.publisher) regEv.previousPublisher = before.publisher;
+  }
   if (dl !== undefined) ev.weeklyDownloads = dl;
   if (osv) ev.osv = osv;
   if (atlas) ev.atlas = atlas;
   if (repo) ev.repo = repo;
   if (setup) {
-    const { runsCode, ...findings } = setup;
+    const { runsCode, build, ...findings } = setup;
     ev.scripts = findings;
     regEv.setupPyRuns = runsCode || findings.network.length > 0 || findings.env.length > 0;
+    if (build) regEv.buildBackend = build;
   }
 }
 

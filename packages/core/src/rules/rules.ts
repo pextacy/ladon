@@ -126,6 +126,17 @@ export const R08: Rule = {
       return { hit: true, detail: `runs code at install time (${k}: "${v.length > 60 ? v.slice(0, 57) + "..." : v}")` };
     }
     if (r.hasBindingGyp) return { hit: true, detail: "builds native code at install time (binding.gyp)" };
+    const b = r.buildBackend;
+    if (b && (b.inTree || b.nonStandard || b.hooks.length > 0)) {
+      const name = b.backend ? `"${b.backend}"` : "";
+      const what = b.inTree
+        ? `builds with an in-tree backend ${name} (backend-path) shipped inside the sdist`
+        : b.hooks.length > 0
+          ? `build hook ${b.hooks.join(", ")} runs at install time`
+          : `uses the non-standard build backend ${name}`;
+      const extra = b.inTree && b.hooks.length > 0 ? ` + build hook ${b.hooks.join(", ")}` : !b.inTree && b.hooks.length > 0 && b.nonStandard ? ` (non-standard backend ${name})` : "";
+      return { hit: true, detail: `no wheel available — ${what}${extra}` };
+    }
     if (r.setupPyRuns) return { hit: true, detail: "no wheel available — setup.py runs code at install time" };
     return miss;
   },
@@ -181,9 +192,10 @@ export const R14: Rule = {
   weight: 25,
   evaluate: (ev) => {
     const r = ev.registry;
-    if (ev.ecosystem !== "npm" || !r || (ev.weeklyDownloads ?? 0) <= 100_000) return miss;
+    if (!r || (ev.weeklyDownloads ?? 0) <= 100_000) return miss;
+    const what = ev.ecosystem === "npm" ? "provenance attestation" : "PEP 740 attestation";
     return r.previousProvenance === true && r.provenance === false
-      ? { hit: true, detail: `popular package, but ${ev.version} lacks the provenance attestation ${r.previousVersion} had` }
+      ? { hit: true, detail: `popular package, but ${ev.version} lacks the ${what} ${r.previousVersion} had` }
       : miss;
   },
 };
@@ -192,10 +204,24 @@ export const R15: Rule = {
   id: "R15",
   name: "agent_config_write",
   weight: 30,
+  evaluate: (ev) => {
+    const s = ev.scripts;
+    if (!s) return miss;
+    if (s.agentConfig.length > 0) return { hit: true, detail: `install code ${first(s.agentConfig)}${more(s.agentConfig)} — AI-tool persistence pattern` };
+    const w = s.agentConfigWrites ?? [];
+    return w.length > 0 ? { hit: true, detail: `package code ${first(w)}${more(w)} — AI-tool persistence pattern` } : miss;
+  },
+};
+
+/** Lockfile pins this version with a hash the registry does not publish for it (tampered lockfile or registry). */
+export const L01: Rule = {
+  id: "L01",
+  name: "lockfile_integrity_mismatch",
+  weight: 60,
   evaluate: (ev) =>
-    ev.scripts && ev.scripts.agentConfig.length > 0
-      ? { hit: true, detail: `install code ${first(ev.scripts.agentConfig)} — AI-tool persistence pattern` }
+    ev.lockfile.integrity === "mismatch"
+      ? { hit: true, detail: `lockfile hash for ${ev.lockfile.version ?? "this version"} doesn't match ${reg(ev)}${ev.lockfile.integrityDetail ? ` (${ev.lockfile.integrityDetail})` : ""} — lockfile or registry tampered` }
       : miss,
 };
 
-export const ALL_RULES: Rule[] = [R01, R02, R03, R04, R05, R06, R07, R08, R09, R10, R11, R12, R13, R14, R15];
+export const ALL_RULES: Rule[] = [R01, R02, R03, R04, R05, R06, R07, R08, R09, R10, R11, R12, R13, R14, R15, L01];

