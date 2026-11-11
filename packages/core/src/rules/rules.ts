@@ -181,9 +181,10 @@ export const R14: Rule = {
   weight: 25,
   evaluate: (ev) => {
     const r = ev.registry;
-    if (ev.ecosystem !== "npm" || !r || (ev.weeklyDownloads ?? 0) <= 100_000) return miss;
+    if (!r || (ev.weeklyDownloads ?? 0) <= 100_000) return miss;
+    const what = ev.ecosystem === "npm" ? "provenance attestation" : "PEP 740 attestation";
     return r.previousProvenance === true && r.provenance === false
-      ? { hit: true, detail: `popular package, but ${ev.version} lacks the provenance attestation ${r.previousVersion} had` }
+      ? { hit: true, detail: `popular package, but ${ev.version} lacks the ${what} ${r.previousVersion} had` }
       : miss;
   },
 };

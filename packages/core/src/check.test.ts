@@ -142,6 +142,60 @@ describe("checkPackage", () => {
     expect(r2.hits.map((x) => x.id)).toContain("L01");
   });
 
+  describe("PyPI worm signals", () => {
+    const sd = (v: string, time: string) => ({ version: v, time, hasWheel: true, files: [{ filename: `pkg-${v}.tar.gz`, packagetype: "sdist", sha256: "a".repeat(64) }, { filename: `pkg-${v}-py3-none-any.whl`, packagetype: "bdist_wheel" }] });
+    const project = { name: "pkg", latest: "2.0.1", created: daysAgo(2000), people: ["attacker@evil.example"], repositoryUrl: "https://github.com/o/pkg", releases: { "2.0.0": sd("2.0.0", daysAgo(30)), "2.0.1": sd("2.0.1", hoursAgo(5)) } };
+    const fake = (prov: Record<string, string | null>, people: Record<string, string[]> = { "2.0.0": ["dev@pkg.example"] }): PypiSource & { calls: string[] } => {
+      const calls: string[] = [];
+      return {
+        calls,
+        project: async () => project,
+        weeklyDownloads: async () => 2_000_000,
+        sdist: async () => null,
+        release: async (_n, v) => {
+          calls.push(`release ${v}`);
+          return people[v] ? { version: v, people: people[v]! } : null;
+        },
+        provenance: async (_n, v, file) => {
+          calls.push(`prov ${v} ${file}`);
+          const p = prov[v];
+          return p === undefined || p === null ? null : { publisher: p };
+        },
+      };
+    };
+
+    it("R07 fires when a fresh release names new people; R14 when PEP 740 provenance disappears", async () => {
+      const pypi = fake({ "2.0.0": "GitHub:o/pkg" });
+      const r = await checkPackage({ ecosystem: "pypi", name: "pkg" }, { ...deps(npmFake({})), pypi });
+      const ids = r.hits.map((h) => h.id);
+      expect(ids).toEqual(expect.arrayContaining(["R07", "R14"]));
+      expect(r.hits.find((h) => h.id === "R07")!.detail).toContain("attacker@evil.example");
+      expect(r.hits.find((h) => h.id === "R14")!.detail).toContain("PEP 740");
+      expect(pypi.calls).toEqual(expect.arrayContaining(["release 2.0.0", "prov 2.0.1 pkg-2.0.1.tar.gz", "prov 2.0.0 pkg-2.0.0.tar.gz"]));
+      expect(pypi.calls).not.toContain("release 2.0.1"); // latest's people come from the project JSON
+    });
+
+    it("R07 fires on a changed Trusted Publisher; quiet when nothing changed", async () => {
+      const moved = await checkPackage({ ecosystem: "pypi", name: "pkg" }, { ...deps(npmFake({})), pypi: fake({ "2.0.0": "GitHub:o/pkg", "2.0.1": "GitHub:mallory/fork" }, { "2.0.0": ["attacker@evil.example"] }) });
+      expect(moved.hits.find((h) => h.id === "R07")?.detail).toContain("GitHub:mallory/fork");
+      expect(moved.hits.map((h) => h.id)).not.toContain("R14");
+      const same = await checkPackage({ ecosystem: "pypi", name: "pkg" }, { ...deps(npmFake({})), pypi: fake({ "2.0.0": "GitHub:o/pkg", "2.0.1": "GitHub:o/pkg" }, { "2.0.0": ["attacker@evil.example"] }) });
+      expect(same.hits.map((h) => h.id)).not.toEqual(expect.arrayContaining(["R07"]));
+      expect(same.hits.map((h) => h.id)).not.toContain("R14");
+    });
+
+    it("old, unpopular releases skip the extra lookups", async () => {
+      const old = { ...project, releases: { ...project.releases, "2.0.1": sd("2.0.1", daysAgo(20)) } };
+      const pypi: PypiSource = { ...fake({}), project: async () => old, weeklyDownloads: async () => 50 };
+      const calls: string[] = [];
+      pypi.release = async (_n, v) => (calls.push(v), null);
+      pypi.provenance = async (_n, v) => (calls.push(v), null);
+      const r = await checkPackage({ ecosystem: "pypi", name: "pkg" }, { ...deps(npmFake({})), pypi });
+      expect(r.evidence.registry?.previousVersion).toBe("2.0.0");
+      expect(calls).toEqual([]);
+    });
+  });
+
   it("worm pattern: hijacked new version of a popular package", async () => {
     const info: NpmPackageInfo = {
       ...expressInfo,

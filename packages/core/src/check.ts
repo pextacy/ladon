@@ -1,6 +1,6 @@
 import semver from "semver";
 import { analyzeNpmTarball, analyzeSdist, installScriptsOf } from "./analyze/scripts.js";
-import { emptyEvidence, type Evidence, type RegistryEvidence } from "./evidence.js";
+import { ageMs, emptyEvidence, HOUR, type Evidence, type RegistryEvidence } from "./evidence.js";
 import { compareIntegrity, type LockfileIndex } from "./lockfile.js";
 import { parsePep440Specifier, satisfiesPep440 } from "./parse/pep440.js";
 import { scoreEvidence, type Hit, type ScoreOptions } from "./score.js";
@@ -11,7 +11,7 @@ import { cached, TTL, type Cache } from "./sources/cache.js";
 import { SourceError } from "./sources/http.js";
 import { npmRegistryIntegrity, previousNpmVersion, resolveNpmVersion, type NpmSource } from "./sources/npm.js";
 import type { OsvSource } from "./sources/osv.js";
-import { resolvePypiVersion, type PypiSource } from "./sources/pypi.js";
+import { previousPypiVersion, provenanceFile, resolvePypiVersion, type PypiSource } from "./sources/pypi.js";
 import type { RepoSource } from "./sources/repo.js";
 
 export interface CheckDeps {
@@ -240,7 +240,13 @@ async function gatherPypi(ev: Evidence, target: InstallTarget, deps: CheckDeps, 
   const version = resolvePypiVersion(info, target.versionSpec) ?? info.latest;
   if (version) ev.version = version;
   const rel = version ? info.releases[version] : undefined;
-  const regEv: RegistryEvidence = { maintainers: info.author ? [info.author] : [], previousMaintainers: [], installScripts: {}, hasBindingGyp: false };
+  const prev = version ? previousPypiVersion(info, version) : undefined;
+  const regEv: RegistryEvidence = {
+    maintainers: version === info.latest ? (info.people ?? (info.author ? [info.author] : [])) : info.author ? [info.author] : [],
+    previousMaintainers: [],
+    installScripts: {},
+    hasBindingGyp: false,
+  };
   if (info.created) regEv.firstPublished = info.created;
   if (rel?.time) regEv.versionPublished = rel.time;
   regEv.latest = info.latest;
@@ -248,11 +254,32 @@ async function gatherPypi(ev: Evidence, target: InstallTarget, deps: CheckDeps, 
   if (info.readmeExcerpt) regEv.readmeExcerpt = info.readmeExcerpt;
   if (info.repositoryUrl) regEv.repositoryUrl = info.repositoryUrl;
   if (rel?.sdistUrl) regEv.sdistUrl = rel.sdistUrl;
+  if (prev) regEv.previousVersion = prev.version;
   ev.registry = regEv;
 
+  // R07 only looks at versions < 48 h old: fetch per-version metadata just for those.
+  const age = ageMs(ev, rel?.time);
+  const recent = age !== undefined && age < 48 * HOUR;
+  const pypi = deps.pypi;
+  const people = async (v: string) => (v === info.latest && info.people ? info.people : ((await pypi.release!(target.name, v))?.people ?? null));
+  const peopleP =
+    recent && prev && version && pypi.release
+      ? soft(ev, "PyPI release metadata", false, Promise.all([people(version), people(prev.version)]))
+      : Promise.resolve(undefined);
+
+  const dlP = soft(ev, "pypistats", false, deps.pypi.weeklyDownloads(target.name));
+  // PEP 740 provenance (R14 for popular packages, publisher identity for R07 on recent versions)
+  const provP = dlP.then(async (dl) => {
+    if (!prev || !version || !pypi.provenance || !(recent || (dl ?? 0) > 100_000)) return undefined;
+    const curFile = provenanceFile(rel);
+    const prevFile = provenanceFile(prev, curFile?.packagetype);
+    if (!curFile || !prevFile) return undefined;
+    return soft(ev, "PyPI provenance", false, Promise.all([pypi.provenance(target.name, version, curFile.filename), pypi.provenance(target.name, prev.version, prevFile.filename)]));
+  });
+
   const sdistOnly = !!rel && !rel.hasWheel && !!rel.sdistUrl;
-  const [dl, osv, atlas, repo, setup] = await Promise.all([
-    soft(ev, "pypistats", false, deps.pypi.weeklyDownloads(target.name)),
+  const [dl, osv, atlas, repo, setup, ppl, prov] = await Promise.all([
+    dlP,
     soft(ev, "OSV", true, deps.osv.query("pypi", target.name, version)),
     atlasP,
     deps.repo && (opts.repoCheck ?? true) && regEv.repositoryUrl
@@ -269,7 +296,21 @@ async function gatherPypi(ev: Evidence, target: InstallTarget, deps: CheckDeps, 
           }),
         )
       : Promise.resolve(undefined),
+    peopleP,
+    provP,
   ]);
+  if (ppl) {
+    const [cur, before] = ppl;
+    if (cur) regEv.maintainers = cur;
+    if (before) regEv.previousMaintainers = before;
+  }
+  if (prov) {
+    const [cur, before] = prov;
+    regEv.provenance = cur !== null;
+    regEv.previousProvenance = before !== null;
+    if (cur?.publisher) regEv.publisher = cur.publisher;
+    if (before?.publisher) regEv.previousPublisher = before.publisher;
+  }
   if (dl !== undefined) ev.weeklyDownloads = dl;
   if (osv) ev.osv = osv;
   if (atlas) ev.atlas = atlas;
