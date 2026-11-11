@@ -117,6 +117,38 @@ ok(!out.hookSpecificOutput && /approved by a human/.test(out.systemMessage ?? ""
 const replay = await post(`/api/approvals/${d.id}/decide`, { decision: "approve", response: auth.assert(opts.body) });
 ok(replay.status >= 400, `re-deciding a closed request is refused (${replay.status})`);
 
+// 5. Signed allowlist: `ladon allow` needs a passkey approval; the stored proof is re-verified on load,
+//    and an entry an agent writes into state.json by hand is ignored.
+{
+  const allow = start(["allow", "ladon-canary-worm@1.0.0"]);
+  const id = await until(() => [...allow.out.matchAll(/approve on your phone: \S+\/approve\/([\w-]+)/g)].pop()?.[1]);
+  ok(!!id, `ladon allow created approval ${id}`);
+  const o = await post(`/api/approvals/${id}/options`, { decision: "approve" });
+  const a = await post(`/api/approvals/${id}/decide`, { decision: "approve", response: auth.assert(o.body) });
+  ok(a.status === 200 && a.body.status === "approved", "allowlist approval accepted by the server");
+  ok((await allow.done) === 0, "ladon allow finished after a verified passkey approval");
+  const st = JSON.parse(readFileSync(join(home, "state.json"), "utf8"));
+  ok(st.allowlist.length === 1 && st.allowlist[0].proof, "entry stored with its approval proof");
+  // forge: an agent appends an unsigned entry and a copy of the real proof bound to another package
+  st.allowlist.push({ target: "npm:color-fn-utils", approvedAt: new Date().toISOString(), via: "passkey" });
+  st.allowlist.push({ ...st.allowlist[0], target: "npm:ladon-canary-curl" });
+  writeFileSync(join(home, "state.json"), JSON.stringify(st));
+  const list = start(["allow", "--list"]);
+  await list.done;
+  ok(/✓ npm:ladon-canary-worm@1\.0\.0/.test(list.out), "the signed entry verifies");
+  ok((list.out.match(/IGNORED/g) ?? []).length === 2, "the forged entries are ignored");
+  rmMarker();
+  const h = start(["hook", "claude-pre-tool-use"], hookInput("npm i color-fn-utils"));
+  const hid = await approvalUrl();
+  ok(!!hid, "forged allowlist entry did not let color-fn-utils through (still held)");
+  if (hid) {
+    seen.add(hid);
+    const ro = await post(`/api/approvals/${hid}/options`, { decision: "reject" });
+    await post(`/api/approvals/${hid}/decide`, { decision: "reject", response: auth.assert(ro.body) });
+  }
+  await h.done;
+}
+
 ok(!existsSync("/tmp/ladon-canary-pwned"), "no canary payload ever ran");
 await fetch(`http://127.0.0.1:${env.LADON_DAEMON_PORT}/shutdown`, { method: "POST", headers: { "x-ladon-token": readFileSync(join(home, "daemon.token"), "utf8") } }).catch(() => {});
 console.log(failed ? `\n${failed} check(s) failed` : "\nall passkey e2e checks passed");

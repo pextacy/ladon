@@ -59,3 +59,7 @@ begin
 end;
 $$;
 revoke all on function rate_limit_take(text, int, int, int) from public, anon, authenticated;
+
+-- Functions are executable by PUBLIC by default; only the server (service role) may spend rate-limit budget.
+revoke all on function rate_limit_take(text, int, int, int) from public, anon, authenticated;
+grant execute on function rate_limit_take(text, int, int, int) to service_role;
