@@ -36,7 +36,7 @@ export function installClaudeHooks(settingsPath: string): "added" | "present" {
   return "added";
 }
 
-/** Cursor hooks.json (beforeShellExecution). */
+/** Cursor hooks.json: beforeShellExecution (gate) + beforeSubmitPrompt (remember the prompt for intent drift). */
 export function installCursorHooks(path = join(homedir(), ".cursor", "hooks.json")): "added" | "present" {
   let cfg: { version?: number; hooks?: Record<string, { command: string }[]> } = { version: 1, hooks: {} };
   if (existsSync(path)) {
@@ -44,12 +44,61 @@ export function installCursorHooks(path = join(homedir(), ".cursor", "hooks.json
     copyFileSync(path, `${path}.ladon-backup`);
   }
   cfg.hooks ??= {};
-  const list = (cfg.hooks.beforeShellExecution ??= []);
-  if (list.some((h) => h.command.includes("hook cursor"))) return "present";
-  list.push({ command: cli("hook cursor") });
+  const wanted: [event: string, sub: string, legacy?: RegExp][] = [
+    ["beforeShellExecution", "hook cursor-before-shell", /hook cursor(?:\s|$|')/],
+    ["beforeSubmitPrompt", "hook cursor-before-submit-prompt"],
+  ];
+  let changed = false;
+  for (const [event, sub, legacy] of wanted) {
+    const list = (cfg.hooks[event] ??= []);
+    if (list.some((h) => typeof h.command === "string" && (h.command.includes(sub) || (legacy?.test(h.command) ?? false)))) continue;
+    list.push({ command: cli(sub) });
+    changed = true;
+  }
+  if (!changed) return "present";
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
   return "added";
+}
+
+export const codexHome = () => process.env.CODEX_HOME ?? join(homedir(), ".codex");
+/** Codex tool names that run shell commands or apply patches (Bash is canonical; the rest are older names). */
+export const CODEX_MATCHER = "^(Bash|shell|exec_command|local_shell|shell_command|apply_patch)$";
+
+/**
+ * Codex CLI hooks.json (PreToolUse). Codex also reads inline [hooks] tables in config.toml and merges
+ * both, so an existing Ladon entry there counts as installed (no duplicate run).
+ */
+export function installCodexHooks(dir = codexHome()): "added" | "present" {
+  const path = join(dir, "hooks.json");
+  const toml = join(dir, "config.toml");
+  if (existsSync(toml) && readFileSync(toml, "utf8").includes("hook codex-pre-tool-use")) return "present";
+  type CodexHook = { matcher?: string; hooks: { type: "command"; command: string; timeout?: number; statusMessage?: string }[] };
+  let cfg: { hooks?: Record<string, CodexHook[]> } & Record<string, unknown> = {};
+  if (existsSync(path)) {
+    cfg = JSON.parse(readFileSync(path, "utf8")) as typeof cfg;
+    copyFileSync(path, `${path}.ladon-backup`);
+  }
+  cfg.hooks ??= {};
+  const list = (cfg.hooks.PreToolUse ??= []);
+  const ours = list.find((e) => e.hooks?.some((h) => typeof h.command === "string" && h.command.includes("hook codex-pre-tool-use")));
+  if (ours && ours.matcher === CODEX_MATCHER) return "present";
+  if (ours) ours.matcher = CODEX_MATCHER; // upgrade older installs
+  else list.push({ matcher: CODEX_MATCHER, hooks: [{ type: "command", command: cli("hook codex-pre-tool-use"), timeout: 150, statusMessage: "Ladon: checking install" }] });
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
+  return "added";
+}
+
+/** `[features] hooks = false` (or the deprecated `codex_hooks = false`) turns all Codex hooks off. */
+export function codexHooksDisabled(dir = codexHome()): boolean {
+  try {
+    const text = readFileSync(join(dir, "config.toml"), "utf8");
+    const features = /^\[features\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m.exec(text)?.[1] ?? "";
+    return /^\s*(hooks|codex_hooks)\s*=\s*false\b/m.test(features);
+  } catch {
+    return false;
+  }
 }
 
 export async function pairKey(log: (s: string) => void): Promise<boolean> {
@@ -116,6 +165,7 @@ export async function waitForPasskey(log: (s: string) => void, timeoutMs = 5 * 6
 export interface InitOptions {
   project: boolean;
   cursor: boolean;
+  codex?: boolean;
   shell: boolean;
   offline: boolean;
   passkey: boolean;
@@ -129,7 +179,11 @@ export async function init(o: InitOptions, log: (s: string) => void = (s) => pro
   log("Ladon setup");
   const settings = o.project ? join(process.cwd(), ".claude", "settings.json") : join(homedir(), ".claude", "settings.json");
   log(`  ${installClaudeHooks(settings) === "added" ? "✓ added" : "✓ already has"} Claude Code hooks in ${settings.replace(homedir(), "~")}`);
-  if (o.cursor) log(`  ${installCursorHooks() === "added" ? "✓ added" : "✓ already has"} Cursor beforeShellExecution hook`);
+  if (o.cursor) log(`  ${installCursorHooks() === "added" ? "✓ added" : "✓ already has"} Cursor beforeShellExecution + beforeSubmitPrompt hooks`);
+  if (o.codex) {
+    log(`  ${installCodexHooks() === "added" ? "✓ added" : "✓ already has"} Codex PreToolUse hook in ${join(codexHome(), "hooks.json").replace(homedir(), "~")} — run /hooks in Codex once to trust it`);
+    if (codexHooksDisabled()) log("  ▲ hooks are disabled in ~/.codex/config.toml ([features] hooks = false) — Codex will not run the Ladon hook; the PATH shims still gate installs");
+  }
   installShims();
   if (shimsActive()) log("  ✓ package-manager shims active");
   else if (o.shell) {

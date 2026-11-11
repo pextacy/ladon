@@ -23,7 +23,7 @@ passkey** — an approval the agent cannot fake.
 
 | Head | What it does | Where |
 |---|---|---|
-| **Gate** | Claude Code `PreToolUse` + `SessionStart` hooks, a Cursor `beforeShellExecution` hook, and PATH shims for `npm npx pnpm yarn bun pip uv uvx poetry pipx` — so *any* agent or human install passes through Ladon. Also scans instruction files for injected install directives and watches AI-tool configs for planted hooks / MCP servers. | `packages/cli` |
+| **Gate** | Claude Code `PreToolUse` + `SessionStart` hooks, Cursor `beforeShellExecution` + `beforeSubmitPrompt` hooks (`init --cursor`), a Codex CLI `PreToolUse` hook (`init --codex`), and PATH shims for `npm npx pnpm pnpx yarn bun bunx pip uv uvx poetry pipx pipenv` plus pure-sh `python`/`python3` shims that only start Ladon for `-m pip` / `-m uv` — so *any* agent or human install passes through Ladon. Also scans instruction files for injected install directives and watches AI-tool configs for planted hooks / MCP servers. | `packages/cli` |
 | **Judge** | 15 documented rules (exists? OSV `MAL-`? hallucinated per Atlas? typosquat / conflation of a top-5k name? brand new? new version by a new maintainer? install script touching network / env / `~/.claude`? provenance dropped?) → score 0–100 → ✓ allow / ▲ warn / ■ hold. Optional LLM **intent-drift** check: does this install match what the human asked for? It can only escalate. | `packages/core` |
 | **Key** | ESP32-S3 + 2" screen + two buttons. Generates its own Ed25519 key; shows package, score and top reasons; hold-to-approve 1.5 s signs `id|commandHash|nonce|exp|ok|counter`. Passkey (WebAuthn) approval on your phone is the alternative. | `firmware`, `hardware`, `apps/web/approve` |
 | **Atlas** | Public map of package names AIs hallucinate and whether someone registered them recently. Public checker for any package or manifest. | `apps/web` |
@@ -89,6 +89,7 @@ canaries, so this measures whether the rules catch known attack *shapes*, not no
 ```bash
 pnpm install && pnpm build && pnpm test
 node packages/cli/dist/index.js init --shell --passkey   # hooks + shims, pair a passkey
+# add --cursor and/or --codex to also hook Cursor (~/.cursor/hooks.json) and Codex (~/.codex/hooks.json; run /hooks in Codex once to trust it)
 node packages/cli/dist/index.js check react-codeshift -v
 node packages/cli/dist/index.js scan                     # instruction-file injection scan
 ```

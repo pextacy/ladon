@@ -24,17 +24,17 @@ import { ensureDaemon } from "./client.js";
 import { DAEMON_PORT, loadConfig, loadState, PATHS, saveState } from "./config.js";
 import { runDaemon } from "./daemon.js";
 import { loadLockfiles } from "./gate.js";
-import { claudePreToolUse, claudeSessionStart, cursorBeforeShell } from "./hook.js";
+import { claudePreToolUse, claudeSessionStart, codexPreToolUse, cursorBeforeShell, cursorBeforeSubmitPrompt } from "./hook.js";
 import { init, pairKey, registerDevice, waitForPasskey } from "./init.js";
 import { defaultApprovers, loadLadonEnv } from "./runtime.js";
 import { scanAll } from "./scan.js";
-import { installShims, PATH_LINE, shimExec, shimsActive, uninstallShims } from "./shim.js";
+import { installedShims, installShims, PATH_LINE, PY_SHIMS, shimExec, shimsActive, uninstallShims } from "./shim.js";
 import { checkWatched } from "./watch.js";
 
 const HELP = `ladon ${LADON_VERSION} — a firewall between AI coding agents and package registries
 
-  ladon init [--project] [--cursor] [--shell] [--passkey] [--offline] [--atlas-reports]
-                             install Claude Code hooks + shims, pair Key / passkey
+  ladon init [--project] [--cursor] [--codex] [--shell] [--passkey] [--offline] [--atlas-reports]
+                             install Claude Code (+ Cursor / Codex) hooks + shims, pair Key / passkey
   ladon check <pkg>[@v] [--pypi] [-v] [--json] [--registry URL]
                              verdict for one package
   ladon scan                 scan instruction files (AGENTS.md, CLAUDE.md, …) here → repo → home
@@ -276,7 +276,7 @@ export async function main(argv: string[]): Promise<number> {
       out(LADON_VERSION);
       return 0;
     case "init":
-      await init({ project: flag(args, "--project"), cursor: flag(args, "--cursor"), shell: flag(args, "--shell"), offline: flag(args, "--offline"), passkey: flag(args, "--passkey"), atlasReports: flag(args, "--atlas-reports") });
+      await init({ project: flag(args, "--project"), cursor: flag(args, "--cursor"), codex: flag(args, "--codex"), shell: flag(args, "--shell"), offline: flag(args, "--offline"), passkey: flag(args, "--passkey"), atlasReports: flag(args, "--atlas-reports") });
       return 0;
     case "check":
       return cmdCheck(args);
@@ -301,8 +301,10 @@ export async function main(argv: string[]): Promise<number> {
       const kind = args[0];
       if (kind === "claude-pre-tool-use") return claudePreToolUse();
       if (kind === "claude-session-start") return claudeSessionStart();
-      if (kind === "cursor") return cursorBeforeShell();
-      err("usage: ladon hook claude-pre-tool-use|claude-session-start|cursor");
+      if (kind === "cursor" || kind === "cursor-before-shell") return cursorBeforeShell();
+      if (kind === "cursor-before-submit-prompt") return cursorBeforeSubmitPrompt();
+      if (kind === "codex-pre-tool-use") return codexPreToolUse();
+      err("usage: ladon hook claude-pre-tool-use|claude-session-start|cursor-before-shell|cursor-before-submit-prompt|codex-pre-tool-use");
       return 2;
     }
     case "shim": {
@@ -317,6 +319,10 @@ export async function main(argv: string[]): Promise<number> {
         return 0;
       }
       out(shimsActive() ? "✓ shims are first on PATH" : `✗ shims not on PATH\n  ${PATH_LINE}`);
+      const have = installedShims();
+      out(`  installed: ${have.length ? have.join(" ") : "none (ladon shim install)"}`);
+      const py = PY_SHIMS.filter((t) => have.includes(t));
+      out(py.length === PY_SHIMS.length ? "  ✓ python -m pip / -m uv gated (python shims)" : "  ✗ python shims missing — ladon shim install");
       return 0;
     }
     case "shim-exec": {
