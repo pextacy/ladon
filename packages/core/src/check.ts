@@ -288,9 +288,9 @@ async function gatherPypi(ev: Evidence, target: InstallTarget, deps: CheckDeps, 
     sdistOnly && (opts.analyzeScripts ?? true)
       ? soft(
           ev,
-          "setup.py analysis",
+          "sdist build analysis",
           false,
-          cached(deps.cache, `analysis:pypi:${target.name}@${version}:v1`, TTL.analysis, async () => {
+          cached(deps.cache, `analysis:pypi:${target.name}@${version}:v2`, TTL.analysis, async () => {
             const tgz = await deps.pypi.sdist(rel.sdistUrl!, 8 * 1024 * 1024);
             return tgz ? analyzeSdist(tgz) : null;
           }),
@@ -316,9 +316,10 @@ async function gatherPypi(ev: Evidence, target: InstallTarget, deps: CheckDeps, 
   if (atlas) ev.atlas = atlas;
   if (repo) ev.repo = repo;
   if (setup) {
-    const { runsCode, ...findings } = setup;
+    const { runsCode, build, ...findings } = setup;
     ev.scripts = findings;
     regEv.setupPyRuns = runsCode || findings.network.length > 0 || findings.env.length > 0;
+    if (build) regEv.buildBackend = build;
   }
 }
 

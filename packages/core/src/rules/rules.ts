@@ -126,6 +126,17 @@ export const R08: Rule = {
       return { hit: true, detail: `runs code at install time (${k}: "${v.length > 60 ? v.slice(0, 57) + "..." : v}")` };
     }
     if (r.hasBindingGyp) return { hit: true, detail: "builds native code at install time (binding.gyp)" };
+    const b = r.buildBackend;
+    if (b && (b.inTree || b.nonStandard || b.hooks.length > 0)) {
+      const name = b.backend ? `"${b.backend}"` : "";
+      const what = b.inTree
+        ? `builds with an in-tree backend ${name} (backend-path) shipped inside the sdist`
+        : b.hooks.length > 0
+          ? `build hook ${b.hooks.join(", ")} runs at install time`
+          : `uses the non-standard build backend ${name}`;
+      const extra = b.inTree && b.hooks.length > 0 ? ` + build hook ${b.hooks.join(", ")}` : !b.inTree && b.hooks.length > 0 && b.nonStandard ? ` (non-standard backend ${name})` : "";
+      return { hit: true, detail: `no wheel available — ${what}${extra}` };
+    }
     if (r.setupPyRuns) return { hit: true, detail: "no wheel available — setup.py runs code at install time" };
     return miss;
   },

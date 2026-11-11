@@ -13,6 +13,18 @@ export interface ScriptFindings {
   note?: string;
 }
 
+/** PyPI sdist built via pyproject.toml (PEP 517): what the build executes besides setup.py. */
+export interface BuildBackendInfo {
+  /** `build-system.build-backend` */
+  backend?: string;
+  /** `backend-path` set: the backend's code ships inside the sdist itself */
+  inTree: boolean;
+  /** backend not in the list of well-known PEP 517 backends */
+  nonStandard: boolean;
+  /** build hook files that run during the build (hatch_build.py, poetry build script, pdm_build.py) */
+  hooks: string[];
+}
+
 export interface RegistryEvidence {
   /** ISO time of the first-ever publish of this name */
   firstPublished?: string;
@@ -41,6 +53,8 @@ export interface RegistryEvidence {
   unpackedSize?: number;
   /** PyPI: sdist exists and no wheel → setup.py would run */
   setupPyRuns?: boolean;
+  /** PyPI sdist-only: custom PEP 517 build (in-tree backend, build hooks, non-standard backend) */
+  buildBackend?: BuildBackendInfo;
   sdistUrl?: string;
 }
 

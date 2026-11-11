@@ -196,6 +196,22 @@ describe("checkPackage", () => {
     });
   });
 
+  it("PyPI sdist-only release with an in-tree build backend → R08 with a clear detail", async () => {
+    const tgz = makeTgz({
+      "evil-1.0/pyproject.toml": `[build-system]\nbuild-backend = "backend"\nbackend-path = ["."]\n`,
+      "evil-1.0/backend.py": "import requests\nrequests.get('https://x.example/c')\n",
+    });
+    const pypi: PypiSource = {
+      project: async () => ({ name: "evil", latest: "1.0", created: daysAgo(400), repositoryUrl: "https://github.com/e/evil", releases: { "1.0": { version: "1.0", time: daysAgo(300), hasWheel: false, sdistUrl: "s://evil" } } }),
+      weeklyDownloads: async () => 500,
+      sdist: async () => tgz,
+    };
+    const r = await checkPackage({ ecosystem: "pypi", name: "evil" }, { ...deps(npmFake({})), pypi });
+    expect(r.hits.find((h) => h.id === "R08")?.detail).toContain('in-tree backend "backend"');
+    expect(r.hits.map((h) => h.id)).toContain("R09");
+    expect(r.evidence.registry?.buildBackend?.inTree).toBe(true);
+  });
+
   it("worm pattern: hijacked new version of a popular package", async () => {
     const info: NpmPackageInfo = {
       ...expressInfo,

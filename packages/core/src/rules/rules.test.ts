@@ -47,6 +47,11 @@ describe("rules", () => {
     expect(R08.evaluate(ev({ registry: reg({ hasBindingGyp: true }) })).hit).toBe(true);
     expect(R08.evaluate(ev({ registry: reg({ setupPyRuns: true }) })).hit).toBe(true);
     expect(R08.evaluate(ev({ registry: reg() })).hit).toBe(false);
+    const b = (o: object) => ev({ ecosystem: "pypi", registry: reg({ setupPyRuns: true, buildBackend: { inTree: false, nonStandard: false, hooks: [], ...o } }) });
+    expect(R08.evaluate(b({ backend: "backend", inTree: true, nonStandard: true })).detail).toBe('no wheel available — builds with an in-tree backend "backend" (backend-path) shipped inside the sdist');
+    expect(R08.evaluate(b({ backend: "hatchling.build", hooks: ["hatch_build.py"] })).detail).toBe("no wheel available — build hook hatch_build.py runs at install time");
+    expect(R08.evaluate(b({ backend: "x.api", nonStandard: true })).detail).toBe('no wheel available — uses the non-standard build backend "x.api"');
+    expect(R08.evaluate(b({ backend: "setuptools.build_meta" })).detail).toContain("setup.py");
   });
   it("R09–R11, R15 script findings", () => {
     const e = ev({ scripts: scripts({ network: ["loads a network module (x.js)"], env: ["reads environment variables (x.js)"], obfuscation: ["uses eval() (x.js)"], agentConfig: ["references Claude Code config (x.js)"] }) });

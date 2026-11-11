@@ -24,7 +24,7 @@ Hard overrides (always hold, score = 100): OSV `MAL-` advisory match; package do
 | R05 `conflation` | name = tokens of two popular packages merged (e.g. `react-codeshift`) | +20 | token-set match, §3 |
 | R06 `very_new` | first publish < 7 days | +20 | < 72 h → +30 |
 | R07 `new_version_spike` | requested version published < 48 h AND maintainers changed vs previous | +30 | worm pattern. npm: `maintainers` + `_npmUser`. PyPI (no per-file uploader in the JSON API): author/maintainer e-mails (names if no e-mail) from `/pypi/<name>/<ver>/json` of both versions, plus the PEP 740 Trusted Publisher as publisher; fetched only for versions < 48 h old |
-| R08 `install_script` | has preinstall/install/postinstall/prepare or `binding.gyp` (npm), `setup.py` with exec (PyPI sdist) | +15 | base |
+| R08 `install_script` | has preinstall/install/postinstall/prepare or `binding.gyp` (npm), `setup.py` with exec (PyPI sdist), or a pyproject-only sdist whose PEP 517 build runs package code: in-tree backend (`backend-path`), build hooks (`[tool.hatch.*.hooks.custom]` → hatch_build.py, poetry `build` script, pdm_build.py) or a non-standard `build-backend` | +15 | base |
 | R09 `script_network` | install script touches `http`, `https`, `net`, `fetch`, `curl`, `wget`, DNS | +25 | static |
 | R10 `script_env` | install script reads `process.env`, `.npmrc`, `~/.ssh`, cloud cred paths | +25 | |
 | R11 `script_obfuscation` | `eval`, `Function(`, long base64/hex blobs, `child_process` with dynamic strings | +20 | |
@@ -71,7 +71,11 @@ discount esbuild scored 95 (hold). Results: `docs/EVAL.md`.
 ## 4. Install-script static analysis
 
 npm: download tarball metadata only (`dist.tarball`) into memory, read `package.json` scripts and the files
-those scripts invoke (max 2 MB, max depth 2). PyPI: inspect `setup.py` in sdist / skip wheels with no hooks.
+those scripts invoke (max 2 MB, max depth 2). PyPI (only when no wheel exists, so pip must build the sdist): inspect `setup.py`; for pyproject-only
+sdists read `[build-system]` — `backend-path` means the backend's code ships in the sdist (its module file
+is analysed), hatch/poetry/pdm build hooks are analysed, and a backend outside the well-known list
+(setuptools, hatchling, flit_core, poetry-core, pdm-backend, maturin, scikit-build-core, meson-python,
+sip, uv_build, …) is reported as non-standard.
 Use regex + a JS tokenizer (`acorn`) for JS; plain regex for Python. **Never execute anything.**
 
 ## 5. Intent judge (LLM)

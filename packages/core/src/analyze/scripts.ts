@@ -1,4 +1,5 @@
-import type { ScriptFindings } from "../evidence.js";
+import type { BuildBackendInfo, ScriptFindings } from "../evidence.js";
+import { parseTomlSubset } from "../parse/pyproject.js";
 import { analyzeJsAst } from "./js.js";
 import { AGENT_CONFIG, ENV, matchAll, NETWORK, OBFUSCATION, PY_EXEC, PY_NETWORK } from "./patterns.js";
 import { readTarGz, stripRoot, type TarFile } from "./tar.js";
@@ -138,9 +139,113 @@ export function analyzeSetupPy(code: string, where = "setup.py"): ScriptFindings
   return f;
 }
 
-export function analyzeSdist(tgz: Uint8Array): (ScriptFindings & { runsCode: boolean }) | null {
-  const files = readTarGz(tgz, (p) => /^[^/]+\/setup\.py$/.test(p), 1024 * 1024);
-  const setup = files[0];
-  if (!setup) return null;
-  return analyzeSetupPy(new TextDecoder().decode(setup.data));
+/** PEP 517 backends published by well-known projects. Anything else is "non-standard". */
+export const STANDARD_BUILD_BACKENDS = new Set([
+  "setuptools.build_meta",
+  "setuptools.build_meta:__legacy__",
+  "hatchling.build",
+  "flit_core.buildapi",
+  "flit.buildapi",
+  "poetry.core.masonry.api",
+  "poetry.masonry.api",
+  "pdm.backend",
+  "pdm.pep517.api",
+  "maturin",
+  "scikit_build_core.build",
+  "mesonpy",
+  "sipbuild.api",
+  "uv_build",
+  "whey",
+  "enscons.api",
+  "pbr.build",
+]);
+
+const SDIST_ROOT_FILES = new Set(["setup.py", "pyproject.toml", "hatch_build.py", "pdm_build.py", "build.py"]);
+const relPath = (p: string) => normalizePath(p.replace(/^\.\//, ""));
+
+/** What the PEP 517 build of an sdist will execute, from pyproject.toml. */
+export function sdistBuildPlan(pyproject: string, present: (path: string) => boolean): BuildBackendInfo & { files: string[] } {
+  const toml = parseTomlSubset(pyproject);
+  const bs = toml.get("build-system");
+  const backendRaw = bs?.get("build-backend");
+  const backend = typeof backendRaw === "string" ? backendRaw.trim() : undefined;
+  const pathsRaw = bs?.get("backend-path");
+  const backendPath = Array.isArray(pathsRaw) ? pathsRaw : typeof pathsRaw === "string" ? [pathsRaw] : [];
+  const out: BuildBackendInfo & { files: string[] } = { inTree: backendPath.length > 0, nonStandard: !!backend && !STANDARD_BUILD_BACKENDS.has(backend), hooks: [], files: [] };
+  if (backend) out.backend = backend;
+  if (out.inTree && backend) {
+    const mod = backend.split(":")[0]!.replace(/\./g, "/");
+    for (const dir of backendPath) {
+      const base = relPath(dir);
+      for (const c of [`${mod}.py`, `${mod}/__init__.py`]) out.files.push(base ? `${base}/${c}` : c);
+    }
+  }
+  const hook = (path: string) => {
+    const p = relPath(path);
+    if (!out.hooks.includes(p)) out.hooks.push(p);
+  };
+  // hatchling custom build / metadata hooks (default file hatch_build.py)
+  for (const [table, entries] of toml) {
+    if (/^tool\.hatch\.(build(\.targets\.[^.]+)?|metadata)\.hooks\.custom$/.test(table)) {
+      const pth = entries.get("path");
+      hook(typeof pth === "string" ? pth : "hatch_build.py");
+    }
+  }
+  // poetry-core build script
+  const poetryBuild = toml.get("tool.poetry.build")?.get("script") ?? toml.get("tool.poetry")?.get("build");
+  if (typeof poetryBuild === "string") hook(poetryBuild);
+  // pdm-backend loads pdm_build.py automatically (or tool.pdm.build.custom-hook)
+  if (backend?.startsWith("pdm.")) {
+    const custom = toml.get("tool.pdm.build")?.get("custom-hook");
+    const p = typeof custom === "string" ? custom : "pdm_build.py";
+    if (present(relPath(p))) hook(p);
+  }
+  out.files.push(...out.hooks);
+  return out;
+}
+
+/**
+ * Python sdist (no wheel → pip builds it, running code): setup.py, or — for pyproject-only sdists —
+ * an in-tree PEP 517 backend (`backend-path`), build hooks (hatch_build.py, poetry build.py,
+ * pdm_build.py) and non-standard backends. Every file that runs is pattern-analysed.
+ */
+export function analyzeSdist(tgz: Uint8Array): (ScriptFindings & { runsCode: boolean; build?: BuildBackendInfo }) | null {
+  const dec = new TextDecoder();
+  const rootFiles = new Map<string, string>();
+  const all = new Set<string>();
+  for (const f of readTarGz(tgz, (p) => {
+    const rel = stripRoot(p);
+    all.add(rel);
+    return SDIST_ROOT_FILES.has(rel);
+  }, 1024 * 1024))
+    rootFiles.set(stripRoot(f.path), dec.decode(f.data));
+
+  const setup = rootFiles.get("setup.py");
+  const pyproject = rootFiles.get("pyproject.toml");
+  if (setup === undefined && pyproject === undefined) return null;
+  const f = setup !== undefined ? analyzeSetupPy(setup) : { ...emptyFindings(), runsCode: false };
+  if (pyproject === undefined) return f;
+
+  const plan = sdistBuildPlan(pyproject, (p) => all.has(p));
+  const { files: wanted, ...build } = plan;
+  const flagged = build.inTree || build.nonStandard || build.hooks.length > 0;
+  if (!flagged) return f;
+
+  const wantedSet = new Set(wanted);
+  const code = new Map(rootFiles);
+  const missing = wanted.filter((w) => !code.has(w) && all.has(w));
+  if (missing.length > 0) {
+    const need = new Set(missing);
+    for (const x of readTarGz(tgz, (p, size) => need.has(stripRoot(p)) && size < 512 * 1024, 2 * 1024 * 1024)) code.set(stripRoot(x.path), dec.decode(x.data));
+  }
+  for (const w of wantedSet) {
+    const src = code.get(w);
+    if (src === undefined) continue;
+    const a = analyzeSetupPy(src, w);
+    f.files.push(w);
+    for (const k of ["network", "env", "obfuscation", "agentConfig"] as const) for (const x of a[k]) if (!f[k].includes(x)) f[k].push(x);
+  }
+  // in-tree backends and build hooks always execute during the build
+  if (build.inTree || build.hooks.length > 0) f.runsCode = true;
+  return { ...f, build };
 }
