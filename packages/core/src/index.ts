@@ -3,6 +3,7 @@ export * from "./verdict.js";
 export * from "./evidence.js";
 export * from "./parse/shell.js";
 export * from "./parse/command.js";
+export * from "./parse/pyproject.js";
 export * from "./rules/rules.js";
 export * from "./score.js";
 export * from "./check.js";
