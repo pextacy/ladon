@@ -67,3 +67,7 @@ Privacy (CLAUDE.md #5): never send source code, prompts, paths, env vars. `agent
 Rate limits: with Supabase configured, `/api/check` and `/api/check/manifest` count in Postgres
 (`rate_limit_take`, fixed 60 s windows, migration 0002) so the limit holds across serverless instances; if
 the database is unreachable they fall back to a per-instance in-memory counter.
+
+CLI consumers: `ladon audit` reads `GET /api/atlas/alerts?limit=500` (no auth, names only) and matches it
+against the dependency names in the project's lockfiles locally; `ladon key pair` posts
+`/api/devices/me/keys` after a successful pairing when the machine is registered.

@@ -53,7 +53,11 @@ approval; otherwise the agent gets the reasons and is told not to route around t
 
 ## Why the agent can't approve itself
 
-- There is **no approve command or flag**. `ladon allow` itself needs a Key/passkey approval.
+- There is **no approve command or flag**. `ladon allow` itself needs a Key/passkey approval, and the
+  allowlist is **signed**: each entry stores the Key signature / passkey assertion that approved it (bound to
+  the exact entry, e.g. `npm:left-pad@1.3.0`) and is re-verified against the pinned approvers on every load,
+  so an agent writing `~/.ladon/state.json` can't add or widen an entry. `ladon allow --remove` needs no
+  approval (it only tightens).
 - Key approvals are Ed25519 signatures from a private key that never leaves the device, bound to the exact
   command hash, a one-time nonce, an expiry and a strictly increasing counter (replay-proof).
 - Passkey approvals: the web app is only a mailbox. The daemon pins the passkey's public key at pairing and
@@ -90,10 +94,24 @@ canaries, so this measures whether the rules catch known attack *shapes*, not no
 pnpm install && pnpm build && pnpm test
 node packages/cli/dist/index.js init --shell --passkey   # hooks + shims, pair a passkey
 node packages/cli/dist/index.js check react-codeshift -v
-node packages/cli/dist/index.js scan                     # instruction-file injection scan
+node packages/cli/dist/index.js scan                     # instruction files + agent hooks / MCP / auto-run tasks
+node packages/cli/dist/index.js audit                    # lockfile deps vs Atlas alerts + OSV MAL advisories
+node packages/cli/dist/index.js allow left-pad@1.3.0     # one exact version (Key/passkey approval); --list, --remove
 ```
 
-Optional `~/.ladon/env`: `ANTHROPIC_API_KEY=…` and `LADON_AI=on` turn on the intent judge.
+Watched agent configs (guard-the-guards): Claude Code, Cursor, Windsurf, Claude Desktop, Codex
+(`config.toml` MCP / `notify` / `[hooks]`, `hooks.json`), Gemini CLI (`settings.json` hooks + MCP), VS Code user
+`mcp.json` / `tasks.json` / `settings.json` on macOS, Linux and Windows, and per project `.vscode/settings.json`
+(automatic tasks, agent/terminal auto-approve), `.vscode/tasks.json`, `.mcp.json`, … The daemon re-checks the
+global files and the projects it saw installs from in the last 24 h every 30 s, and hands any new item to the
+agent with the next gate result.
+
+Atlas alerts (names registered after models hallucinated them): `GET /api/atlas/alerts`, Atom feed
+`/atlas/feed.xml`, optional webhook `ATLAS_ALERT_WEBHOOK_URL`. The nightly probe can query Anthropic,
+OpenAI-compatible endpoints and OpenRouter (`LADON_PROBE_MODELS=claude-opus-5-5,openai:…,openrouter:…`).
+
+Optional `~/.ladon/env`: `ANTHROPIC_API_KEY=…` and `LADON_AI=on` turn on the intent judge (and the
+LLM-written explanation in `ladon check -v`).
 Everything works with `LADON_AI=off`.
 
 ### Demo (local only, nothing is published anywhere)

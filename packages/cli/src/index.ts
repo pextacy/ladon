@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import {
   checkPackage,
-  commandHash,
+  countedHits,
   createDeps,
   explainDeterministic,
   formatReport,
@@ -13,8 +13,11 @@ import {
   newRequestId,
   parseNpmSpec,
   parsePipSpec,
+  pkgLabel,
   type InstallTarget,
+  type Report,
 } from "@ladon/core";
+import { audit, fetchAtlasAlerts } from "./audit.js";
 import { allowlistHash, allowTarget, entryLabel, exactVersion, verifiedAllowlist } from "./allowlist.js";
 import { keyHello } from "./approve/key.js";
 import { requestApproval } from "./approve/index.js";
@@ -40,6 +43,8 @@ const HELP = `ladon ${LADON_VERSION} — a firewall between AI coding agents and
                              verdict for one package
   ladon scan                 scan instruction files (AGENTS.md, CLAUDE.md, …) here → repo → home,
                              then list agent hooks / MCP servers / auto-run tasks (read-only)
+  ladon audit [--json]       check every lockfile dependency against Atlas alerts (hallucinated,
+                             then registered) and OSV malicious-package advisories; exit 1 on findings
   ladon watch                show new hooks / MCP servers in AI-tool configs since the baseline
   ladon status               what is installed, paired and running
   ladon log [-n 20]          recent decisions
@@ -83,6 +88,24 @@ export function parseTarget(spec: string, pypi: boolean): InstallTarget | null {
   return r.target ?? null;
 }
 
+/** One-paragraph LLM explanation (same as the web checker) when LADON_AI=on and a key is set; else null. */
+async function explainWithAi(r: Report): Promise<string | null> {
+  loadLadonEnv();
+  const ai = await import("@ladon/core/ai").catch(() => null);
+  if (!ai || !ai.aiEnabled()) return null;
+  try {
+    const text = await ai.anthropicProvider({ timeoutMs: 8000 }).explain({
+      package: pkgLabel(r),
+      verdict: r.verdict,
+      score: r.score,
+      reasons: countedHits(r.hits).slice(0, 5).map((h) => h.detail),
+    });
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
 async function cmdCheck(args: string[]): Promise<number> {
   const pypi = flag(args, "--pypi");
   const verbose = flag(args, "-v") || flag(args, "--verbose");
@@ -106,7 +129,8 @@ async function cmdCheck(args: string[]): Promise<number> {
   } else {
     out(formatReport(r, { color: !!process.stdout.isTTY, verbose }));
     if (verbose) {
-      out(`\n${explainDeterministic(r)}`);
+      const ai = await explainWithAi(r);
+      out(`\n${ai ? `${ai}\n  (explanation written by AI from the evidence above; the verdict comes from the rules)` : explainDeterministic(r)}`);
       for (const e of r.evidence.errors) out(`  source problem: ${e.source}: ${e.message}`);
       out(`  (${r.durationMs} ms)`);
     }
@@ -137,6 +161,25 @@ function cmdScan(): number {
     if (fresh) worst = Math.max(worst, 1);
   }
   return worst;
+}
+
+async function cmdAudit(args: string[]): Promise<number> {
+  const json = flag(args, "--json");
+  const cfg = loadConfig();
+  const deps = createDeps({ cacheDir: PATHS.cache, atlasUrl: cfg.webUrl });
+  const r = await audit(process.cwd(), { alerts: () => fetchAtlasAlerts(cfg.webUrl), osv: deps.osv });
+  if (json) {
+    out(JSON.stringify(r, null, 2));
+  } else if (r.files.length === 0) {
+    out("no lockfile here or up to the repo root (package-lock.json, pnpm-lock.yaml, yarn.lock, uv.lock, poetry.lock, pdm.lock, requirements.txt)");
+  } else {
+    out(`audited ${r.deps} locked dependencies in ${r.files.map((f) => f.replace(process.cwd() + "/", "")).join(", ")}`);
+    for (const f of r.findings) out(`■ ${f.ecosystem}:${f.name}${f.versions.length ? `@${f.versions.join(",")}` : ""}\n    ${f.detail}`);
+    for (const e of r.errors) out(`▲ incomplete: ${e}`);
+    if (r.findings.length === 0) out(r.errors.length ? "no findings in what could be checked" : "✓ no hallucinated-then-registered names and no known-malicious packages");
+  }
+  if (r.findings.length > 0) return 1;
+  return r.errors.length > 0 ? 2 : 0;
 }
 
 function cmdWatch(): number {
@@ -350,6 +393,8 @@ export async function main(argv: string[]): Promise<number> {
       return cmdScan();
     case "watch":
       return cmdWatch();
+    case "audit":
+      return cmdAudit(args);
     case "status":
       return cmdStatus();
     case "log":
