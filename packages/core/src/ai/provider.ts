@@ -31,6 +31,12 @@ const EXPLAIN_SYSTEM = `You write the one-paragraph explanation Ladon shows when
  * Claude via the Anthropic API. Structured output (Zod) + local validation, one retry on schema
  * failure, then give up (callers treat null as "no AI opinion"). Low effort keeps the hook fast.
  * Server-side fallbacks ("default") re-run a declined request on a fallback model.
+ *
+ * No `temperature: 0` (DOCS §5): @anthropic-ai/sdk 1.x sends `anthropic-version: 2026-10-21`, on
+ * which `temperature`/`top_p`/`top_k` are rejected (HTTP 400) for every model — and claude-opus-5-5
+ * has no sampling parameters at all. Determinism comes from the constrained output instead: a
+ * Zod-schema structured output with a 3-value enum, low effort, local validation, and the rule that
+ * the judge can only escalate a verdict, never lower it.
  */
 export function anthropicProvider(opts: { apiKey?: string; model?: string; timeoutMs?: number; client?: Anthropic } = {}): LlmProvider {
   const client = opts.client ?? new Anthropic({ ...(opts.apiKey ? { apiKey: opts.apiKey } : {}), timeout: opts.timeoutMs ?? 15_000, maxRetries: 1 });

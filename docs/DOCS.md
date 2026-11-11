@@ -92,8 +92,12 @@ Output (Zod):
 ```json
 { "drift": "none|weak|strong", "reason": "≤ 160 chars", "suspectedSource": "user|instruction_file|tool_output|unknown" }
 ```
-Rules: drift can raise `warn → hold` (strong) but can **never lower** a score. Temperature 0. One retry on
-schema failure, then ignore. Claude Code hook input provides `transcript_path`; we read the last user turn.
+Rules: drift can raise `warn → hold` (strong) but can **never lower** a score. One retry on
+schema failure, then ignore. **No temperature parameter:** the plan called for temperature 0, but
+`@anthropic-ai/sdk` 1.x sends API version `2026-10-21`, which rejects `temperature`/`top_p`/`top_k` with
+a 400 on every model (and the default `claude-opus-5-5` has no sampling parameters at all). Output is
+kept stable by the structured-output schema (enum `drift`/`suspectedSource`, length-capped reason),
+`effort: "low"`, and local Zod validation. Claude Code hook input provides `transcript_path`; we read the last user turn.
 
 ## 6. Approval protocol
 
