@@ -73,7 +73,18 @@ export interface Evidence {
     homoglyph?: boolean;
     conflationOf?: [string, string];
   };
-  lockfile: { present: boolean; version?: string };
+  lockfile: {
+    present: boolean;
+    version?: string;
+    /**
+     * lockfile hash vs the registry's for the locked version: "verified" (match), "mismatch" (L01),
+     * "unchecked" (hashes recorded but the registry could not be compared), absent when the
+     * lockfile records no hash.
+     */
+    integrity?: "verified" | "mismatch" | "unchecked";
+    /** human-readable detail for a mismatch */
+    integrityDetail?: string;
+  };
   /** sources that failed — drive fail-closed behaviour */
   errors: { source: string; message: string; critical: boolean }[];
   /** evaluation time (ISO) so rules stay pure and testable */

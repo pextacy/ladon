@@ -100,6 +100,48 @@ describe("checkPackage", () => {
     expect(called).toBe(false);
   });
 
+  it("lockfile fast path verifies integrity against the registry", async () => {
+    const sri = "sha512-" + "A".repeat(86) + "==";
+    const info: NpmPackageInfo = { ...canaryInfo, versions: { "1.0.2": { ...canaryInfo.versions["1.0.2"]!, integrity: sri } } };
+    const lock = new LockfileIndex();
+    lock.add("npm", "color-fn-utils", "1.0.2", sri);
+    const ok = await checkPackage({ ecosystem: "npm", name: "color-fn-utils", versionSpec: "^1.0.0" }, deps(npmFake({ "color-fn-utils": info })), { lockfile: lock });
+    expect(ok).toMatchObject({ verdict: "allow", fastPath: "lockfile", version: "1.0.2" });
+    expect(ok.evidence.lockfile.integrity).toBe("verified");
+
+    const tampered = new LockfileIndex();
+    tampered.add("npm", "color-fn-utils", "1.0.2", "sha512-" + "B".repeat(86) + "==");
+    const bad = await checkPackage({ ecosystem: "npm", name: "color-fn-utils", versionSpec: "1.0.2" }, deps(npmFake({ "color-fn-utils": info }, { "t://c": canaryTgz })), { lockfile: tampered });
+    expect(bad.fastPath).toBeUndefined();
+    expect(bad.verdict).toBe("hold");
+    expect(bad.hits.find((h) => h.id === "L01")).toMatchObject({ name: "lockfile_integrity_mismatch", weight: 60 });
+    expect(bad.hits.map((h) => h.id)).toContain("R09"); // full check ran
+
+    // registry unreachable → fast path as before, but integrity is not claimed
+    const down: NpmSource = { packument: async () => { throw new SourceError("npm registry", "down"); }, weeklyDownloads: async () => 0, tarball: async () => null };
+    const un = await checkPackage({ ecosystem: "npm", name: "color-fn-utils", versionSpec: "1.0.2" }, deps(down), { lockfile: lock });
+    expect(un).toMatchObject({ verdict: "allow", fastPath: "lockfile" });
+    expect(un.evidence.lockfile.integrity).toBe("unchecked");
+  });
+
+  it("PyPI lockfile fast path: PEP 440 range + file sha256", async () => {
+    const h = "a".repeat(64);
+    const pypi: PypiSource = {
+      project: async () => ({ name: "requests", latest: "2.32.3", releases: { "2.32.3": { version: "2.32.3", hasWheel: true, files: [{ filename: "requests-2.32.3.tar.gz", packagetype: "sdist", sha256: h }] } } }),
+      weeklyDownloads: async () => 1e7,
+      sdist: async () => null,
+    };
+    const lock = new LockfileIndex();
+    lock.add("pypi", "requests", "2.32.3", `sha256:${h}`);
+    const r = await checkPackage({ ecosystem: "pypi", name: "requests", versionSpec: ">=2.30,<3" }, { ...deps(npmFake({})), pypi }, { lockfile: lock });
+    expect(r).toMatchObject({ verdict: "allow", fastPath: "lockfile" });
+    expect(r.evidence.lockfile.integrity).toBe("verified");
+    const bad = new LockfileIndex();
+    bad.add("pypi", "requests", "2.32.3", `sha256:${"f".repeat(64)}`);
+    const r2 = await checkPackage({ ecosystem: "pypi", name: "requests", versionSpec: "==2.32.3" }, { ...deps(npmFake({})), pypi }, { lockfile: bad });
+    expect(r2.hits.map((x) => x.id)).toContain("L01");
+  });
+
   it("worm pattern: hijacked new version of a popular package", async () => {
     const info: NpmPackageInfo = {
       ...expressInfo,

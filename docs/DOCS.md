@@ -44,7 +44,15 @@ Weights are hackathon defaults; tune on the fixture corpus and document changes 
 | G01 `non_registry_source` | git URL / tarball URL / local path spec | +35 | can't be verified (CLI gate) |
 | G02 `custom_registry` | `--registry` to a non-default, non-loopback registry | +30 | CLI gate |
 | G03 `exec` | `npx` / `uvx` / `dlx` — runs immediately | 0 | shown as a reason only |
+| L01 `lockfile_integrity_mismatch` | the lockfile pins the requested version with a hash (`integrity` / `resolution.integrity` / uv·poetry·pdm `hash` / `--hash`) that the registry does not publish for that version (npm `dist.integrity`/`shasum`, PyPI file `sha256`) | +60 | lockfile or registry tampered; the fast path is skipped and the full check runs |
 | AI1 `intent_drift_*` | LLM intent judge (§5) | 0 | strong drift escalates allow→warn, warn→hold; never lowers |
+
+**Lockfile fast path (PLAN §1 step 2).** A requested version that is already pinned in a lockfile
+(semver range for npm, PEP 440 specifier for PyPI) is allowed without the full check. When the
+lockfile records a hash for that version, the fast path first compares it with the registry's
+(one cached packument / project-JSON fetch): match → `evidence.lockfile.integrity = "verified"`;
+mismatch → L01 + full check; registry unreachable or no common hash algorithm → `"unchecked"` and
+the fast path proceeds as before, without claiming integrity. No hash recorded → no network, no claim.
 
 **Established-package discount (tuned on the corpus):** when a package has ≥ 100k weekly downloads, was
 first published ≥ 180 days ago and the requested version is ≥ 7 days old, R08–R11 and R13 are shown but

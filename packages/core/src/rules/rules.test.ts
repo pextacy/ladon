@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { scoreEvidence } from "../score.js";
 import { daysAgo, ev, hoursAgo } from "../test/helpers.js";
-import { R01, R02, R03, R04, R05, R06, R07, R08, R09, R10, R11, R12, R13, R14, R15 } from "./rules.js";
+import { R01, R02, R03, R04, R05, R06, R07, R08, R09, R10, R11, R12, R13, R14, R15, L01 } from "./rules.js";
 
 const reg = (o: object = {}) => ({ maintainers: ["a"], previousMaintainers: ["a"], installScripts: {}, hasBindingGyp: false, repositoryUrl: "git+https://github.com/a/b.git", ...o });
 const scripts = (o: object = {}) => ({ analyzed: true, files: [], network: [], env: [], obfuscation: [], agentConfig: [], ...o });
@@ -70,6 +70,13 @@ describe("rules", () => {
     const e = ev({ version: "2.0.1", weeklyDownloads: 2_000_000, registry: reg({ provenance: false, previousProvenance: true, previousVersion: "2.0.0" }) });
     expect(R14.evaluate(e).hit).toBe(true);
     expect(R14.evaluate({ ...e, weeklyDownloads: 50 }).hit).toBe(false);
+  });
+  it("L01 lockfile integrity mismatch", () => {
+    const e = ev({ lockfile: { present: true, version: "1.0.0", integrity: "mismatch", integrityDetail: "locked sha512-AAA…, registry sha512-BBB…" } });
+    expect(L01.evaluate(e)).toMatchObject({ hit: true });
+    expect(L01.evaluate(e).detail).toContain("1.0.0");
+    expect(L01.evaluate(ev({ lockfile: { present: true, version: "1.0.0", integrity: "verified" } })).hit).toBe(false);
+    expect(L01.evaluate(ev({ lockfile: { present: true, integrity: "unchecked" } })).hit).toBe(false);
   });
 });
 

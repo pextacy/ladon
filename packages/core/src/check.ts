@@ -1,14 +1,15 @@
 import semver from "semver";
 import { analyzeNpmTarball, analyzeSdist, installScriptsOf } from "./analyze/scripts.js";
 import { emptyEvidence, type Evidence, type RegistryEvidence } from "./evidence.js";
-import type { LockfileIndex } from "./lockfile.js";
+import { compareIntegrity, type LockfileIndex } from "./lockfile.js";
+import { parsePep440Specifier, satisfiesPep440 } from "./parse/pep440.js";
 import { scoreEvidence, type Hit, type ScoreOptions } from "./score.js";
 import type { InstallTarget, Verdict } from "./schemas.js";
 import { defaultTopList, findConflation, findTyposquat, isTop, type TopList } from "./similarity/index.js";
 import type { AtlasSource } from "./sources/atlas.js";
 import { cached, TTL, type Cache } from "./sources/cache.js";
 import { SourceError } from "./sources/http.js";
-import { previousNpmVersion, resolveNpmVersion, type NpmSource } from "./sources/npm.js";
+import { npmRegistryIntegrity, previousNpmVersion, resolveNpmVersion, type NpmSource } from "./sources/npm.js";
 import type { OsvSource } from "./sources/osv.js";
 import { resolvePypiVersion, type PypiSource } from "./sources/pypi.js";
 import type { RepoSource } from "./sources/repo.js";
@@ -61,7 +62,35 @@ function lockedMatch(target: InstallTarget, lock: LockfileIndex | undefined): st
   const versions = lock.versions(target.ecosystem, target.name);
   if (versions.length === 0 || !target.versionSpec) return undefined;
   const spec = target.versionSpec;
-  return versions.find((v) => v === spec || (target.ecosystem === "npm" && semver.validRange(spec) !== null && semver.valid(v) !== null && semver.satisfies(v, spec)));
+  if (target.ecosystem === "pypi") {
+    const pep = parsePep440Specifier(spec);
+    return versions.find((v) => v === spec || (pep !== null && pep.clauses.length > 0 && satisfiesPep440(v, pep, true)));
+  }
+  return versions.find((v) => v === spec || (semver.validRange(spec) !== null && semver.valid(v) !== null && semver.satisfies(v, spec)));
+}
+
+/**
+ * Compare the lockfile's hash for `version` with what the registry publishes (cached packument /
+ * project JSON — the full check reuses it). Fetch problems → "unknown": the fast path then behaves
+ * as before, without claiming integrity.
+ */
+async function lockIntegrity(target: InstallTarget, version: string, locked: string[], deps: CheckDeps): Promise<{ result: "match" | "mismatch" | "unknown"; detail?: string }> {
+  try {
+    let published: string[];
+    if (target.ecosystem === "npm") {
+      const info = await deps.npm.packument(target.name);
+      published = npmRegistryIntegrity(info?.versions[version]);
+    } else {
+      const info = await deps.pypi.project(target.name);
+      published = (info?.releases[version]?.files ?? []).flatMap((f) => (f.sha256 ? [`sha256:${f.sha256}`] : []));
+    }
+    const result = compareIntegrity(locked, published);
+    if (result !== "mismatch") return { result };
+    const short = (t: string) => (t.length > 22 ? `${t.slice(0, 22)}…` : t);
+    return { result, detail: `locked ${short(locked[0]!)}, registry ${short(published[0]!)}` };
+  } catch {
+    return { result: "unknown" };
+  }
 }
 
 export async function checkPackage(target: InstallTarget, deps: CheckDeps, opts: CheckOptions = {}): Promise<Report> {
@@ -74,10 +103,20 @@ export async function checkPackage(target: InstallTarget, deps: CheckDeps, opts:
 
   const fast = lockedMatch(target, opts.lockfile);
   if (fast) {
-    ev.version = fast;
-    ev.exists = true;
-    const r: Report = { target, version: fast, score: 0, verdict: "allow", hits: [], evidence: ev, fastPath: "lockfile", durationMs: Date.now() - started };
-    return r;
+    ev.lockfile.version = fast;
+    const hashes = opts.lockfile!.integrity(target.ecosystem, target.name, fast);
+    const integ = hashes.length > 0 ? await lockIntegrity(target, fast, hashes, deps) : undefined;
+    if (integ?.result === "mismatch") {
+      // the pinned artifact is not what the registry serves for this version → full check + L01
+      ev.lockfile.integrity = "mismatch";
+      if (integ.detail) ev.lockfile.integrityDetail = integ.detail;
+    } else {
+      if (integ) ev.lockfile.integrity = integ.result === "match" ? "verified" : "unchecked";
+      ev.version = fast;
+      ev.exists = true;
+      const r: Report = { target, version: fast, score: 0, verdict: "allow", hits: [], evidence: ev, fastPath: "lockfile", durationMs: Date.now() - started };
+      return r;
+    }
   }
 
   const top = deps.topLists?.[target.ecosystem] ?? defaultTopList(target.ecosystem);

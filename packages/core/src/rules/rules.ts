@@ -198,4 +198,15 @@ export const R15: Rule = {
       : miss,
 };
 
-export const ALL_RULES: Rule[] = [R01, R02, R03, R04, R05, R06, R07, R08, R09, R10, R11, R12, R13, R14, R15];
+/** Lockfile pins this version with a hash the registry does not publish for it (tampered lockfile or registry). */
+export const L01: Rule = {
+  id: "L01",
+  name: "lockfile_integrity_mismatch",
+  weight: 60,
+  evaluate: (ev) =>
+    ev.lockfile.integrity === "mismatch"
+      ? { hit: true, detail: `lockfile hash for ${ev.lockfile.version ?? "this version"} doesn't match ${reg(ev)}${ev.lockfile.integrityDetail ? ` (${ev.lockfile.integrityDetail})` : ""} — lockfile or registry tampered` }
+      : miss,
+};
+
+export const ALL_RULES: Rule[] = [R01, R02, R03, R04, R05, R06, R07, R08, R09, R10, R11, R12, R13, R14, R15, L01];

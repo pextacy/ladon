@@ -19,6 +19,7 @@ const RawVersion = z.object({
     .object({
       tarball: z.string().optional(),
       integrity: z.string().optional(),
+      shasum: z.string().optional(),
       unpackedSize: z.number().optional(),
       attestations: z.unknown().optional(),
     })
@@ -47,6 +48,8 @@ export interface NpmVersionInfo {
   gypfile: boolean;
   tarball?: string;
   integrity?: string;
+  /** legacy sha1 hex digest (old packages have no `integrity`) */
+  shasum?: string;
   unpackedSize?: number;
   repositoryUrl?: string;
   repositoryDirectory?: string;
@@ -93,6 +96,7 @@ export function compactPackument(raw: unknown): NpmPackageInfo | null {
     if (pub) info.publisher = pub;
     if (d.dist?.tarball) info.tarball = d.dist.tarball;
     if (d.dist?.integrity) info.integrity = d.dist.integrity;
+    if (d.dist?.shasum && /^[0-9a-f]{40}$/i.test(d.dist.shasum)) info.shasum = d.dist.shasum.toLowerCase();
     if (d.dist?.unpackedSize !== undefined) info.unpackedSize = d.dist.unpackedSize;
     if (repo.url) info.repositoryUrl = repo.url;
     if (repo.directory) info.repositoryDirectory = repo.directory;
@@ -129,6 +133,14 @@ export function previousNpmVersion(info: NpmPackageInfo, version: string): NpmVe
   return Object.values(info.versions)
     .filter((v) => v.time && v.time < cur.time! && v.version !== version)
     .sort((a, b) => (a.time! < b.time! ? 1 : -1))[0];
+}
+
+/** What the registry publishes as this version's integrity, as SRI tokens (dist.integrity + shasum). */
+export function npmRegistryIntegrity(v: NpmVersionInfo | undefined): string[] {
+  if (!v) return [];
+  const out = v.integrity ? v.integrity.trim().split(/\s+/) : [];
+  if (v.shasum) out.push(`sha1-${Buffer.from(v.shasum, "hex").toString("base64")}`);
+  return out;
 }
 
 export interface NpmSource {
