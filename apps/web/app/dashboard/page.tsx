@@ -5,7 +5,7 @@ import { VerdictMark } from "@/app/components/Verdict";
 import { effectiveStatus, nowSeconds } from "@/lib/approvals";
 import { shortDate } from "@/lib/format";
 import { Session, SESSION_COOKIE, unsign } from "@/lib/session";
-import { getStore, type ApprovalRecord, type DecisionRecord, type Outcome } from "@/lib/store";
+import { getStore, type ApprovalRecord, type DecisionRecord, type DeviceKeyRecord, type Outcome, type PasskeyRecord } from "@/lib/store";
 import { SignIn, SignOut } from "./SignIn";
 
 export const dynamic = "force-dynamic";
@@ -106,6 +106,43 @@ function ApprovalTable({ rows, now }: { rows: ApprovalRecord[]; now: number }) {
   );
 }
 
+function Approvers({ keys, passkeys }: { keys: DeviceKeyRecord[]; passkeys: PasskeyRecord[] }) {
+  const rows = [
+    ...keys.map((k) => ({ id: `key:${k.publicKey}`, kind: "Ladon Key", label: k.label || "Ladon Key", ident: k.fingerprint, since: k.createdAt })),
+    ...passkeys.map((p) => ({ id: `pk:${p.credentialId}`, kind: "Passkey", label: p.label || "passkey", ident: `${p.credentialId.slice(0, 12)}…`, since: p.createdAt })),
+  ];
+  return (
+    <div className="mt-3 overflow-x-auto rounded-lg border border-line bg-surface">
+      <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
+        <caption className="sr-only">Approvers registered for this device</caption>
+        <thead>
+          <tr className="border-b border-line text-muted">
+            <th scope="col" className="px-4 py-2.5 font-medium">Approver</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Type</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Fingerprint / ID</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Added</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={4} className="px-4 py-6 text-muted">No approvers registered. Run <code className="font-mono text-fg">ladon key pair</code> or <code className="font-mono text-fg">ladon passkey pair</code>.</td>
+            </tr>
+          )}
+          {rows.map((r) => (
+            <tr key={r.id} className="border-b border-line last:border-b-0">
+              <th scope="row" className="px-4 py-2.5 font-medium">{r.label}</th>
+              <td className="px-4 py-2.5">{r.kind}</td>
+              <td className="px-4 py-2.5 font-mono">{r.ident}</td>
+              <td className="px-4 py-2.5 font-mono whitespace-nowrap text-muted">{shortDate(r.since)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default async function Dashboard() {
   const jar = await cookies();
   const now = nowSeconds();
@@ -125,11 +162,12 @@ export default async function Dashboard() {
   }
 
   const store = getStore();
-  const [device, decisions, approvals, passkeys] = await Promise.all([
+  const [device, decisions, approvals, passkeys, keys] = await Promise.all([
     store.getDevice(session.d),
     store.listDecisions(session.d, 100),
     store.listApprovals(session.d, 30),
     store.listPasskeys(session.d),
+    store.listDeviceKeys(session.d),
   ]);
   const blocked = decisions.filter((d) => BLOCKED.includes(d.outcome));
   const held = decisions.filter((d) => d.verdict === "hold").length;
@@ -140,7 +178,7 @@ export default async function Dashboard() {
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
           <p className="mt-1 text-muted">
-            Device <span className="font-mono text-fg">{device?.label ?? "unknown"}</span> · {passkeys.length} passkey{passkeys.length === 1 ? "" : "s"}
+            Device <span className="font-mono text-fg">{device?.label ?? "unknown"}</span> · {keys.length} Ladon Key{keys.length === 1 ? "" : "s"} · {passkeys.length} passkey{passkeys.length === 1 ? "" : "s"}
           </p>
         </div>
         <SignOut />
@@ -168,6 +206,15 @@ export default async function Dashboard() {
       <section aria-labelledby="approvals" className="mt-12">
         <h2 id="approvals" className="text-xl font-semibold">Approval requests</h2>
         <ApprovalTable rows={approvals} now={now} />
+      </section>
+
+      <section aria-labelledby="approvers" className="mt-12">
+        <h2 id="approvers" className="text-xl font-semibold">Approvers</h2>
+        <p className="mt-1 text-sm text-muted">
+          What can approve installs for this device. The list is informational: your machine verifies every approval against the Key and
+          passkeys it pinned itself (<code className="font-mono text-fg">ladon status</code>), so an entry here can&apos;t approve anything by itself.
+        </p>
+        <Approvers keys={keys} passkeys={passkeys} />
       </section>
 
       <section aria-labelledby="recent" className="mt-12">

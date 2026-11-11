@@ -2,6 +2,7 @@ import type { Store } from "../lib/store/types";
 import { extractNames, type ExtractedName } from "./extract";
 import type { Existence } from "./registry";
 import type { ProbePrompt } from "./prompts/generate";
+import { postAlertWebhook, type PostLike } from "./webhook";
 
 /** Probe logic with every side effect injected, so it is testable without network or API key. */
 export interface ProbeDeps {
@@ -11,6 +12,8 @@ export interface ProbeDeps {
   store: Store;
   now(): Date;
   log(msg: string): void;
+  /** the model name recorded in the Atlas (default: the id as given) */
+  label?(model: string): string;
 }
 
 export interface ProbeStats {
@@ -65,7 +68,7 @@ export async function probeRun(prompts: ProbePrompt[], models: string[], maxCall
         }
         if (e.exists) continue;
         stats.hallucinated++;
-        await deps.store.observeAtlasName({ ecosystem: n.ecosystem, name: n.name, model, source: `atlas probe (${p.id.split("-")[0]})`, registered: false, at: deps.now().toISOString() });
+        await deps.store.observeAtlasName({ ecosystem: n.ecosystem, name: n.name, model: deps.label?.(model) ?? model, source: `atlas probe (${p.id.split("-")[0]})`, registered: false, at: deps.now().toISOString() });
         deps.log(`  hallucinated ${n.ecosystem}:${n.name}  (${model}, ${p.id})`);
       }
     }
@@ -77,11 +80,20 @@ export interface RecheckStats {
   checked: number;
   newlyRegistered: { ecosystem: string; name: string; registeredAt: string }[];
   unknown: number;
+  /** alert webhooks delivered (when ATLAS_ALERT_WEBHOOK_URL is set) */
+  alertsSent?: number;
+}
+
+export interface RecheckDeps extends Pick<ProbeDeps, "exists" | "store" | "now" | "log"> {
+  /** POST each newly registered name here (Slack/Discord-compatible JSON). Failures never fail the run. */
+  webhookUrl?: string;
+  webhookFetch?: PostLike;
+  webhookTimeoutMs?: number;
 }
 
 /** Re-check unregistered Atlas names; flag the ones that now exist (the slopsquat early warning). */
-export async function recheckRun(limit: number, deps: Pick<ProbeDeps, "exists" | "store" | "now" | "log">): Promise<RecheckStats> {
-  const stats: RecheckStats = { checked: 0, newlyRegistered: [], unknown: 0 };
+export async function recheckRun(limit: number, deps: RecheckDeps): Promise<RecheckStats> {
+  const stats: RecheckStats = { checked: 0, newlyRegistered: [], unknown: 0, alertsSent: 0 };
   const names = await deps.store.listAtlasUnregistered(limit);
   for (const n of names) {
     stats.checked++;
@@ -97,6 +109,10 @@ export async function recheckRun(limit: number, deps: Pick<ProbeDeps, "exists" |
       await deps.store.setAtlasRegistered(n.ecosystem, n.name, at, now);
       stats.newlyRegistered.push({ ecosystem: n.ecosystem, name: n.name, registeredAt: at });
       deps.log(`  NEWLY REGISTERED ${n.ecosystem}:${n.name} at ${at}`);
+      if (deps.webhookUrl) {
+        const opts = { log: deps.log, ...(deps.webhookFetch ? { fetch: deps.webhookFetch } : {}), ...(deps.webhookTimeoutMs ? { timeoutMs: deps.webhookTimeoutMs } : {}) };
+        if (await postAlertWebhook(deps.webhookUrl, { ecosystem: n.ecosystem, name: n.name, registeredAt: at, models: n.models }, opts)) stats.alertsSent!++;
+      }
     } else {
       await deps.store.setAtlasRegistered(n.ecosystem, n.name, null, now);
     }

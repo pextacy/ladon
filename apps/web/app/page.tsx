@@ -134,7 +134,7 @@ export default function Home() {
             <h3 className="font-semibold">
               <Link href="/check" className="underline">Package checker</Link>
             </h3>
-            <p className="mt-1 text-muted">Paste a name or a package.json / requirements.txt. No sign-up.</p>
+            <p className="mt-1 text-muted">Paste a name or a package.json, requirements.txt, pyproject.toml or Pipfile. No sign-up.</p>
           </div>
           <div>
             <h3 className="font-semibold">

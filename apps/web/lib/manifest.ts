@@ -1,7 +1,8 @@
-import { normalizePypiName, parsePackageJsonDeps, parseRequirementsTxt, type InstallTarget } from "@ladon/core";
+import { normalizePypiName, parsePackageJsonDeps, parsePipfileDeps, parsePyprojectDeps, parseRequirementsTxt, type InstallTarget } from "@ladon/core";
 import { MANIFEST_MAX_BYTES, MANIFEST_MAX_DEPS } from "./validate";
 
-export type ManifestKind = "package.json" | "requirements.txt";
+export type ManifestKind = "package.json" | "requirements.txt" | "pyproject.toml" | "Pipfile";
+export const MANIFEST_KINDS: readonly ManifestKind[] = ["package.json", "requirements.txt", "pyproject.toml", "Pipfile"];
 export type ManifestParse =
   | { ok: true; kind: ManifestKind; targets: InstallTarget[]; skipped: string[] }
   | { ok: false; error: string };
@@ -10,13 +11,15 @@ export function manifestKind(filename: string): ManifestKind | null {
   const base = filename.split(/[\\/]/).pop()!.toLowerCase();
   if (base === "package.json") return "package.json";
   if (base.endsWith(".txt")) return "requirements.txt";
+  if (base === "pyproject.toml") return "pyproject.toml";
+  if (base === "pipfile") return "Pipfile";
   return null;
 }
 
 /** Parse a manifest with the public checker's limits (≤ 200 KB, ≤ 60 registry deps). */
 export function parseManifest(filename: string, content: string, maxDeps = MANIFEST_MAX_DEPS): ManifestParse {
   const kind = manifestKind(filename);
-  if (!kind) return { ok: false, error: "unsupported file — upload a package.json or a requirements.txt" };
+  if (!kind) return { ok: false, error: "unsupported file — upload a package.json, requirements.txt, pyproject.toml or Pipfile" };
   if (Buffer.byteLength(content) > MANIFEST_MAX_BYTES) return { ok: false, error: "manifest is larger than 200 KB" };
   let targets: InstallTarget[];
   let skipped: string[];
@@ -29,6 +32,10 @@ export function parseManifest(filename: string, content: string, maxDeps = MANIF
     }
     if (typeof json !== "object" || json === null || Array.isArray(json)) return { ok: false, error: "package.json must be a JSON object" };
     const r = parsePackageJsonDeps(json);
+    targets = r.targets;
+    skipped = r.nonRegistry.map((s) => `${s} (not from the registry — not checked)`);
+  } else if (kind === "pyproject.toml" || kind === "Pipfile") {
+    const r = kind === "pyproject.toml" ? parsePyprojectDeps(content) : parsePipfileDeps(content);
     targets = r.targets;
     skipped = r.nonRegistry.map((s) => `${s} (not from the registry — not checked)`);
   } else {

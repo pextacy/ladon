@@ -6,7 +6,10 @@ describe("manifest parsing", () => {
     expect(manifestKind("package.json")).toBe("package.json");
     expect(manifestKind("app/Package.JSON")).toBe("package.json");
     expect(manifestKind("requirements-dev.txt")).toBe("requirements.txt");
-    expect(manifestKind("pyproject.toml")).toBeNull();
+    expect(manifestKind("pyproject.toml")).toBe("pyproject.toml");
+    expect(manifestKind("svc/Pipfile")).toBe("Pipfile");
+    expect(manifestKind("Pipfile.lock")).toBeNull();
+    expect(manifestKind("Cargo.toml")).toBeNull();
   });
 
   it("parses package.json deps and skips non-registry ones", () => {
@@ -23,6 +26,24 @@ describe("manifest parsing", () => {
     if (!r.ok) return;
     expect(r.targets).toHaveLength(2);
     expect(r.skipped.join()).toMatch(/other\.txt/);
+  });
+
+  it("parses pyproject.toml (PEP 621 + Poetry) and Pipfile", () => {
+    const py = parseManifest(
+      "pyproject.toml",
+      `[project]\nname = "app"\ndependencies = [\n  "requests>=2.31",\n  "Flask",\n]\n[project.optional-dependencies]\ndev = ["pytest"]\n[tool.poetry.dependencies]\npython = "^3.11"\nhttpx = "^0.27"\n`,
+    );
+    expect(py.ok).toBe(true);
+    if (py.ok) {
+      expect(py.kind).toBe("pyproject.toml");
+      expect(py.targets.map((t) => t.name.toLowerCase())).toEqual(expect.arrayContaining(["requests", "flask", "httpx"]));
+      expect(py.targets.every((t) => t.ecosystem === "pypi")).toBe(true);
+      expect(py.targets.some((t) => t.name === "python")).toBe(false);
+    }
+    const pf = parseManifest("Pipfile", `[packages]\nrequests = "*"\ndjango = "==5.0"\n[dev-packages]\npytest = "*"\n`);
+    expect(pf.ok).toBe(true);
+    if (pf.ok) expect(pf.targets.map((t) => t.name.toLowerCase()).sort()).toEqual(["django", "pytest", "requests"]);
+    expect(parseManifest("pyproject.toml", "[project]\nname = \"x\"\n").ok).toBe(false);
   });
 
   it("enforces limits and explains errors", () => {

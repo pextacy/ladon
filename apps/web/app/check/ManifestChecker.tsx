@@ -15,6 +15,23 @@ interface ManifestResponse {
 }
 
 const MAX_BYTES = 200 * 1024;
+const KINDS = ["package.json", "requirements.txt", "pyproject.toml", "Pipfile"] as const;
+const PLACEHOLDER: Record<(typeof KINDS)[number], string> = {
+  "package.json": '{ "dependencies": { "express": "^4.19.0" } }',
+  "requirements.txt": "requests==2.32.3\nflask>=3.0",
+  "pyproject.toml": '[project]\ndependencies = ["requests>=2.32", "flask"]',
+  Pipfile: '[packages]\nrequests = "*"\nflask = ">=3.0"',
+};
+
+/** Which manifest a picked file is, from its name; null when unsupported. */
+function kindOf(name: string): (typeof KINDS)[number] | null {
+  const base = name.split(/[\\/]/).pop()!.toLowerCase();
+  if (base === "package.json") return "package.json";
+  if (base.endsWith(".txt")) return "requirements.txt";
+  if (base === "pyproject.toml") return "pyproject.toml";
+  if (base === "pipfile") return "Pipfile";
+  return null;
+}
 
 export function ManifestChecker() {
   const [filename, setFilename] = useState("package.json");
@@ -29,7 +46,9 @@ export function ManifestChecker() {
     if (!f) return;
     setError(null);
     if (f.size > MAX_BYTES) return setError("That file is larger than 200 KB.");
-    setFilename(f.name.toLowerCase().endsWith(".json") ? "package.json" : "requirements.txt");
+    const kind = kindOf(f.name);
+    if (!kind) return setError("Pick a package.json, requirements.txt, pyproject.toml or Pipfile.");
+    setFilename(kind);
     setContent(await f.text());
   }
 
@@ -57,17 +76,18 @@ export function ManifestChecker() {
           <div>
             <label htmlFor={ids.kind} className="text-sm font-medium">File type</label>
             <select id={ids.kind} value={filename} onChange={(e) => setFilename(e.target.value)} className="mt-1 block rounded-md border border-line-strong bg-bg px-3 py-2 font-mono text-sm">
-              <option value="package.json">package.json</option>
-              <option value="requirements.txt">requirements.txt</option>
+              {KINDS.map((k) => (
+                <option key={k} value={k}>{k}</option>
+              ))}
             </select>
           </div>
           <div>
             <label htmlFor={ids.file} className="text-sm font-medium">Upload</label>
             <input
               ref={fileRef}
+              /* no accept filter: a Pipfile has no extension, so a filter would hide it — onFile checks the name */
               id={ids.file}
               type="file"
-              accept=".json,.txt,application/json,text/plain"
               onChange={(e) => onFile(e.target.files?.[0])}
               className="mt-1 block text-sm file:mr-3 file:rounded-md file:border file:border-line-strong file:bg-bg file:px-3 file:py-1.5 file:text-fg"
             />
@@ -80,7 +100,7 @@ export function ManifestChecker() {
           onChange={(e) => setContent(e.target.value)}
           rows={8}
           spellCheck={false}
-          placeholder={filename === "package.json" ? '{ "dependencies": { "express": "^4.19.0" } }' : "requests==2.32.3\nflask>=3.0"}
+          placeholder={PLACEHOLDER[kindOf(filename) ?? "package.json"]}
           className="mt-1 w-full rounded-md border border-line-strong bg-bg px-3 py-2 font-mono text-sm"
         />
         <div className="mt-3 flex items-center gap-4">

@@ -89,7 +89,7 @@ export default async function CheckPage({ searchParams }: { searchParams: SP }) 
 
       <section aria-labelledby="manifest" className="mt-16 border-t border-line pt-10">
         <h2 id="manifest" className="text-xl font-semibold">Check a whole manifest</h2>
-        <p className="mt-1 text-muted">Upload or paste a <code className="font-mono text-fg">package.json</code> or <code className="font-mono text-fg">requirements.txt</code> — up to 60 dependencies, 200 KB. Only names and versions are read.</p>
+        <p className="mt-1 text-muted">Upload or paste a <code className="font-mono text-fg">package.json</code>, <code className="font-mono text-fg">requirements.txt</code>, <code className="font-mono text-fg">pyproject.toml</code> or <code className="font-mono text-fg">Pipfile</code> — up to 60 dependencies, 200 KB. Only names and versions are read.</p>
         <ManifestChecker />
       </section>
     </div>

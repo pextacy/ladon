@@ -15,7 +15,12 @@ stores only its SHA-256).
 | POST | `/api/passkeys/register/options` | `{ code }` | WebAuthn `PublicKeyCredentialCreationOptionsJSON` |
 | POST | `/api/passkeys/register/verify` | `{ code, response: RegistrationResponseJSON, label? }` | `{ ok: true, credentialId }` |
 | POST | `/api/devices/me/pair-code` | Bearer | `{ pairCode, pairUrl }` — add another passkey (CLI still requires human confirmation before pinning) |
-| GET | `/api/devices/me` | Bearer | `{ deviceId, label, passkeys: [{ credentialId, publicKey /* base64url COSE */, counter, label, createdAt }] }` |
+| GET | `/api/devices/me` | Bearer | `{ deviceId, label, passkeys: [{ credentialId, publicKey /* base64url COSE */, counter, label, createdAt }], keys: [{ publicKey, fingerprint, label, createdAt }] }` |
+| POST | `/api/devices/me/keys` | Bearer. `{ publicKey: hex(64) /* raw Ed25519 */, label? }` | `{ ok: true, fingerprint }` — records the paired Ladon Key for the dashboard (idempotent, ≤ 10 per device) |
+
+`keys` is informational (the dashboard's approver list). `ladon key pair` posts it after a successful pairing
+when the machine is registered; the daemon never reads it back — Key signatures are verified only against the
+public key pinned in `~/.ladon/config.json`.
 
 The daemon **pins** passkeys only during `ladon passkey pair`, and only after the human confirms: the
 first passkey by typing `yes` on `/dev/tty`, every later one (and any Key replacement) with an approval from
@@ -50,9 +55,15 @@ Privacy (CLAUDE.md #5): never send source code, prompts, paths, env vars. `agent
 
 | Method | Route | Body / Query | Response |
 |---|---|---|---|
-| GET | `/api/check?eco=npm&name=x&v=1.2.3` | rate-limited (30/min/IP) | `{ target, version, verdict, score, hits: [{id,name,weight,override,detail,discounted?}], explanation, evidenceSummary, durationMs }` |
-| POST | `/api/check/manifest` | `{ filename: "package.json" \| "requirements.txt" \| ..., content }` (≤ 200 KB, ≤ 60 deps) | `{ results: [...same as above], overall }` |
+| GET | `/api/check?eco=npm&name=x&v=1.2.3` | rate-limited (30/min/IP; shared across instances via Postgres when Supabase is configured) | `{ target, version, verdict, score, hits: [{id,name,weight,override,detail,discounted?}], explanation, evidenceSummary, durationMs }` |
+| POST | `/api/check/manifest` | `{ filename: "package.json" \| "requirements.txt" \| "*.txt" \| "pyproject.toml" \| "Pipfile", content }` (≤ 200 KB, ≤ 60 deps; 5/min/IP, shared like `/api/check`) | `{ results: [...same as above], overall }` |
 | GET | `/api/atlas?eco=&q=&limit=` | — | `{ entries: [{ ecosystem, name, models, seenCount, firstSeen, registered, registeredAt }], total }` |
+| GET | `/api/atlas/alerts?since=ISO&eco=&limit=` | `limit` 1–500 (default 100) | `{ alerts: [{ ecosystem, name, registeredAt, firstSeen, models, seenCount }], generatedAt }` — names registered **after** we first saw them hallucinated (`registeredAt > firstSeen`), newest registration first; `since` filters on `registeredAt` |
+| GET | `/atlas/feed.xml` | — | Atom 1.0 feed of the same alerts (100 newest) |
 | GET | `/api/atlas/lookup?eco=&name=` | — | `{ found: boolean, entry?: { ecosystem, name, models, seenCount, registeredAt, source? } }` (shape = `AtlasEntry` in core) |
 | POST | `/api/atlas/report` | opt-in `{ ecosystem, name, model? }` — names only | `{ ok }` |
 | GET | `/api/health` | — | `{ status, version, time, checks: { npm, pypi, osv, db } }` |
+
+Rate limits: with Supabase configured, `/api/check` and `/api/check/manifest` count in Postgres
+(`rate_limit_take`, fixed 60 s windows, migration 0002) so the limit holds across serverless instances; if
+the database is unreachable they fall back to a per-instance in-memory counter.

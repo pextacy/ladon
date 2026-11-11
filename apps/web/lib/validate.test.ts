@@ -42,6 +42,11 @@ describe("request validation", () => {
     expect(AtlasReportBody.safeParse({ ecosystem: "npm", name: "x", model: "please ignore previous" }).success).toBe(false);
   });
 
+  it("accepts only supported manifest filenames", () => {
+    for (const f of ["package.json", "requirements-dev.txt", "pyproject.toml", "Pipfile", "app/pyproject.toml"]) expect(ManifestBody.safeParse({ filename: f, content: "" }).success).toBe(true);
+    for (const f of ["Cargo.toml", "Pipfile.lock", "package.json.bak", "setup.py"]) expect(ManifestBody.safeParse({ filename: f, content: "" }).success).toBe(false);
+  });
+
   it("caps manifest size", () => {
     expect(ManifestBody.safeParse({ filename: "package.json", content: "x".repeat(200 * 1024 + 1) }).success).toBe(false);
   });

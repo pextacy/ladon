@@ -1,6 +1,6 @@
 import type { z } from "zod";
-import type { RateLimiter } from "./ratelimit";
-import { getStore, type DeviceRecord } from "./store";
+import { sharedLimiter, type RateLimiter } from "./ratelimit";
+import { getStore, supabaseConfigured, type DeviceRecord } from "./store";
 import { sha256Hex } from "./tokens";
 import { zodMessage } from "./validate";
 
@@ -53,6 +53,14 @@ export function clientIp(headers: Headers): string {
 
 export function rateLimited(l: RateLimiter, headers: Headers, cost = 1): Response | null {
   const r = l.take(clientIp(headers), cost);
+  if (r.ok) return null;
+  return jsonError(429, `too many requests — limit is ${l.limit} per minute; try again in ${r.retryAfter} s`, { "retry-after": String(r.retryAfter) });
+}
+
+/** Like rateLimited, but counted across server instances when Supabase is configured. */
+export async function rateLimitedShared(name: "check" | "manifest", headers: Headers, cost = 1): Promise<Response | null> {
+  const l = sharedLimiter(name, () => (supabaseConfigured() ? getStore() : null));
+  const r = await l.take(clientIp(headers), cost);
   if (r.ok) return null;
   return jsonError(429, `too many requests — limit is ${l.limit} per minute; try again in ${r.retryAfter} s`, { "retry-after": String(r.retryAfter) });
 }

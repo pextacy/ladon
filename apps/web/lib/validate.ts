@@ -16,6 +16,11 @@ export const EcosystemParam = z.enum(["npm", "pypi"]);
 const reasons = z.array(z.string().max(200)).max(5);
 
 export const CreateDeviceBody = z.object({ label });
+/** A Ladon Key's raw Ed25519 public key (from its hello message), registered for the dashboard. */
+export const DeviceKeyBody = z.object({
+  publicKey: z.string().trim().toLowerCase().regex(/^[0-9a-f]{64}$/, "publicKey must be 64 hex chars (raw Ed25519)"),
+  label: label.optional(),
+});
 
 export const PairCode = z.string().trim().toUpperCase().regex(/^[A-Z2-9]{8}$/, "pair code is 8 characters A–Z, 2–9");
 export const RegisterOptionsBody = z.object({ code: PairCode });
@@ -102,8 +107,10 @@ export const CheckQuery = z.object({
 
 export const MANIFEST_MAX_BYTES = 200 * 1024;
 export const MANIFEST_MAX_DEPS = 60;
+/** Same names lib/manifest.ts manifestKind accepts. */
+export const MANIFEST_FILENAME = /(^|[\\/])(package\.json|[^\\/]*\.txt|pyproject\.toml|pipfile)$/i;
 export const ManifestBody = z.object({
-  filename: z.string().trim().min(1).max(200),
+  filename: z.string().trim().min(1).max(200).regex(MANIFEST_FILENAME, "filename must be package.json, requirements.txt (or any .txt), pyproject.toml or Pipfile"),
   content: z.string().max(MANIFEST_MAX_BYTES, "manifest is larger than 200 KB"),
 });
 
@@ -111,6 +118,11 @@ export const AtlasQuery = z.object({
   eco: z.union([EcosystemParam, z.literal("")]).optional(),
   q: z.string().max(214).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+export const AtlasAlertsQuery = z.object({
+  since: z.iso.datetime({ offset: true }).optional(),
+  eco: z.union([EcosystemParam, z.literal("")]).optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 export const AtlasLookupQuery = z.object({ eco: EcosystemParam, name: pkgName });
 export const AtlasReportBody = z.object({

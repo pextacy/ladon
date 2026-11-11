@@ -8,10 +8,13 @@ export const dynamic = "force-dynamic";
 export const GET = handle(async (req: Request) => {
   const auth = await authDevice(req);
   if (!auth.ok) return auth.response;
-  const passkeys = await getStore().listPasskeys(auth.device.id);
+  const store = getStore();
+  const [passkeys, keys] = await Promise.all([store.listPasskeys(auth.device.id), store.listDeviceKeys(auth.device.id)]);
   return json({
     deviceId: auth.device.id,
     label: auth.device.label,
     passkeys: passkeys.map((p) => ({ credentialId: p.credentialId, publicKey: p.publicKey, counter: p.counter, label: p.label, createdAt: p.createdAt })),
+    // informational (dashboard); the daemon trusts only the Key it pinned itself
+    keys: keys.map((k) => ({ publicKey: k.publicKey, fingerprint: k.fingerprint, label: k.label, createdAt: k.createdAt })),
   });
 });
