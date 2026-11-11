@@ -7,12 +7,12 @@ import { pinPasskey, serverPasskeys } from "./approve/passkey.js";
 import { humanApprovesApproverChange } from "./confirm.js";
 import { listKeyPorts, openSerial } from "./approve/serial.js";
 import { CLI_ENTRY } from "./client.js";
-import { loadConfig, loadState, saveConfig, saveState } from "./config.js";
+import { loadConfig, loadState, saveConfig, saveState, stableNodePath } from "./config.js";
 import { installShims, PATH_LINE, shimsActive, shq } from "./shim.js";
 import { announceKey, createDevice } from "./web.js";
 import { checkWatched } from "./watch.js";
 
-const cli = (sub: string) => `${shq(process.execPath)} ${shq(CLI_ENTRY)} ${sub}`;
+const cli = (sub: string) => `${shq(stableNodePath())} ${shq(CLI_ENTRY)} ${sub}`;
 
 type HookEntry = { matcher?: string; hooks?: { type?: string; command?: string; timeout?: number }[] };
 
@@ -115,10 +115,14 @@ export function installCodexHooks(dir = codexHome()): "added" | "present" {
   if (before !== null && before.trim() !== "") cfg = JSON.parse(before) as typeof cfg;
   if (typeof cfg.hooks !== "object" || cfg.hooks === null || Array.isArray(cfg.hooks)) cfg.hooks = {};
   const list = Array.isArray(cfg.hooks.PreToolUse) ? cfg.hooks.PreToolUse : (cfg.hooks.PreToolUse = []);
+  const want = cli("hook codex-pre-tool-use");
   const ours = list.find((e) => e.hooks?.some((h) => typeof h.command === "string" && h.command.includes("hook codex-pre-tool-use")));
-  if (ours && ours.matcher === CODEX_MATCHER) return "present";
-  if (ours) ours.matcher = CODEX_MATCHER; // upgrade older installs
-  else list.push({ matcher: CODEX_MATCHER, hooks: [{ type: "command", command: cli("hook codex-pre-tool-use"), timeout: 150, statusMessage: "Ladon: checking install" }] });
+  const ourHook = ours?.hooks.find((h) => typeof h.command === "string" && h.command.includes("hook codex-pre-tool-use"));
+  if (ours && ourHook && ours.matcher === CODEX_MATCHER && ourHook.command === want) return "present";
+  if (ours && ourHook) {
+    ours.matcher = CODEX_MATCHER; // upgrade older installs
+    ourHook.command = want; // a moved CLI / upgraded Node would otherwise leave a hook that fails (= runs the tool)
+  } else list.push({ matcher: CODEX_MATCHER, hooks: [{ type: "command", command: want, timeout: 150, statusMessage: "Ladon: checking install" }] });
   mkdirSync(dirname(path), { recursive: true });
   if (before !== null) writeFileSync(`${path}.ladon-backup`, before);
   writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
@@ -225,8 +229,9 @@ export async function init(o: InitOptions, log: (s: string) => void = (s) => pro
   else if (o.shell) {
     const rc = join(homedir(), process.env.SHELL?.endsWith("bash") ? ".bashrc" : ".zshrc");
     const cur = existsSync(rc) ? readFileSync(rc, "utf8") : "";
-    if (!cur.includes("ladon shims")) appendFileSync(rc, `\n${PATH_LINE}\n`);
-    log(`  ✓ shims added to PATH in ${rc.replace(homedir(), "~")} (open a new terminal)`);
+    const had = cur.includes(PATH_LINE);
+    if (!had) appendFileSync(rc, `\n${PATH_LINE}\n`);
+    log(`  ✓ shims ${had ? "already on PATH in" : "added to PATH in"} ${rc.replace(homedir(), "~")} (open a new terminal)`);
   } else log(`  ▲ shims installed; add them to PATH so every install is gated:\n      ${PATH_LINE}`);
   checkWatched({ cwd: process.cwd(), update: true });
   log("  ✓ recorded a baseline of AI-tool hooks and MCP servers (guard-the-guards)");

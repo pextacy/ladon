@@ -186,3 +186,11 @@ describe("brace expansion", async () => {
     expect(p.nonRegistry).toEqual([]);
   });
 });
+
+describe("unmatched version spec", async () => {
+  const { formatReport } = await import("./format.js");
+  it("says when no published version matches and which one was checked instead", () => {
+    const out = formatReport({ target: { ecosystem: "npm", name: "lodash", versionSpec: "999.0.0" }, version: "4.18.1", verdict: "allow", score: 0, hits: [], durationMs: 1, evidence: { versionUnmatched: true } });
+    expect(out).toMatch(/no published version matches 999\.0\.0 — checked 4\.18\.1 instead/);
+  });
+});

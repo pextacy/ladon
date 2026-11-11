@@ -198,3 +198,43 @@ describe("manifest parsing", () => {
     expect(r.targets.map((t) => t.name)).toEqual(["react"]);
   });
 });
+
+describe("here-documents are data, not commands (regression: commit messages with install lines)", () => {
+  const H = "EOF";
+  it.each([
+    [`git commit -m "$(cat <<'${H}'\nSwitch to pnpm\n\npnpm add zod\n${H}\n)"`],
+    [`git commit -F- <<'MSG'\nnpm i whatever\nMSG`],
+    [`cat > script.sh << '${H}'\n#!/bin/sh\nnpm install left-pad\n${H}`],
+    [`cat <<-${H}\n\tnpm i x\n\t${H}`],
+    [`gh pr create --body "$(cat <<'${H}'\nRun:\nnpm install lodash\n(it's fine)\n${H}\n)"`],
+    ["arr=(npm i x); echo ${arr[@]}"],
+    ["(( y = 1<<2 )); echo $y"],
+  ])("no install: %j", (cmd) => {
+    expect(parseInstallCommand(cmd)).toEqual([]);
+  });
+  it.each([
+    // commands after the here-doc, or after a body with `)` / an apostrophe, are still seen
+    [`git commit -m "$(cat <<'${H}'\nDon't (break) )\n${H}\n)" && npm i evil`, ["npm:evil"]],
+    [`cat > a.sh <<${H}\nnpm i x\n${H}\nnpm i y`, ["npm:y"]],
+    [`x=$(cat <<${H}\n# it's\n${H}\n) && npm i evil`, ["npm:evil"]],
+    // an unquoted body still runs its substitutions
+    [`cat <<${H}\n$(npm i inner)\n${H}`, ["npm:inner"]],
+    ["arr=(a $(npm i x))", ["npm:x"]],
+    // a shell reading the here-doc as its script runs it
+    [`bash <<${H}\nnpm i evil\n${H}`, ["npm:evil"]],
+    [`sh -s <<'${H}'\nnpm i evil\n${H}`, ["npm:evil"]],
+    [`cat <<'${H}' | sh\nnpm i evil\n${H}`, ["npm:evil"]],
+  ])("%j → %j", (cmd, want) => {
+    expect(names(cmd)).toEqual(want);
+  });
+  it("bash script.sh <<EOF feeds data to a script, not commands", () => {
+    expect(parseInstallCommand(`bash run.sh <<${H}\nnpm i x\n${H}`)).toEqual([]);
+  });
+});
+
+describe("pip wheel -w DIR is not a package", () => {
+  it("pip wheel . -w dist", () => {
+    expect(names("pip wheel . -w dist")).toEqual([]);
+    expect(names("pip wheel requests --wheel-dir wheels")).toEqual(["pypi:requests"]);
+  });
+});

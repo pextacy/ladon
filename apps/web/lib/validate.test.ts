@@ -63,4 +63,11 @@ describe("request validation", () => {
   it("caps manifest size", () => {
     expect(ManifestBody.safeParse({ filename: "package.json", content: "x".repeat(200 * 1024 + 1) }).success).toBe(false);
   });
+
+  it("explains bad checker input in plain words, not raw zod output", () => {
+    const long = CheckQuery.safeParse({ name: "a".repeat(300) });
+    expect(long.success === false && zodMessage(long.error)).toBe("name: package names are at most 214 characters");
+    const eco = CheckQuery.safeParse({ eco: "cargo", name: "x" });
+    expect(eco.success === false && zodMessage(eco.error)).toBe("eco: registry must be npm or pypi");
+  });
 });

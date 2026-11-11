@@ -106,6 +106,7 @@ async function pool<T>(items: T[], n: number, fn: (t: T) => Promise<void>) {
 
 export async function audit(cwd: string, src: { alerts: () => Promise<AtlasAlert[]>; osv: OsvSource; concurrency?: number }): Promise<AuditResult> {
   const files = findLockfiles(cwd);
+  if (files.length === 0) return { files, deps: 0, findings: [], errors: [] }; // nothing to audit: no network calls, exit 0
   const { deps, unreadable } = lockedDeps(files);
   const errors = unreadable.map((f) => `could not read ${f.split(/[\\/]/).pop()}`);
   const findings: AuditFinding[] = [];

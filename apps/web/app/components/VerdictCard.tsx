@@ -9,7 +9,7 @@ function Fact({ k, v }: { k: string; v: React.ReactNode }) {
   return (
     <div className="flex justify-between gap-4 border-b border-line py-1.5 last:border-b-0">
       <dt className="text-muted">{k}</dt>
-      <dd className="text-right font-mono">{v}</dd>
+      <dd className="min-w-0 text-right font-mono [overflow-wrap:anywhere]">{v}</dd>
     </div>
   );
 }
@@ -43,14 +43,14 @@ export function VerdictCard({ r, compact = false, headingLevel = 2 }: { r: Check
             {top.map((h) => (
               <li key={h.id} className="flex gap-3">
                 <span aria-hidden="true" className={`mt-[0.15em] font-mono ${TONE[r.verdict].text}`}>•</span>
-                <span>{h.detail}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere]">{h.detail}</span>
               </li>
             ))}
           </ul>
         ) : (
           <p>No risk rules fired.</p>
         )}
-        {!compact && <p className="mt-5 max-w-prose leading-relaxed text-muted">{r.explanation}</p>}
+        {!compact && <p className="mt-5 max-w-prose leading-relaxed text-muted [overflow-wrap:anywhere]">{r.explanation}</p>}
 
         <details className="mt-5 border-t border-line pt-4">
           <summary className="text-sm font-medium">
@@ -73,7 +73,7 @@ export function VerdictCard({ r, compact = false, headingLevel = 2 }: { r: Check
                       <td className="py-1.5 pr-3 font-mono whitespace-nowrap">
                         {h.id} <span className="text-muted">{h.name}</span>
                       </td>
-                      <td className="py-1.5 pr-3">
+                      <td className="py-1.5 pr-3 [overflow-wrap:anywhere]">
                         {h.detail}
                         {h.discounted && <span className="block text-xs">Not counted: established package (shown for transparency).</span>}
                       </td>
@@ -91,13 +91,13 @@ export function VerdictCard({ r, compact = false, headingLevel = 2 }: { r: Check
             <Fact k="This version published" v={ev.versionPublished ? agoLabel(ev.versionPublished) : "—"} />
             <Fact k="Latest version" v={ev.latest ?? "—"} />
             <Fact k="Maintainers" v={ev.maintainers ?? "—"} />
-            <Fact k="Install scripts" v={ev.installScripts.length ? ev.installScripts.join(", ") : "none"} />
+            <Fact k="Install scripts" v={ev.installScripts.length ? ev.installScripts.join(", ") : ev.exists ? "none" : "—"} />
             <Fact k="OSV advisories" v={ev.osv ? `${ev.osv.malicious.length} malicious · ${ev.osv.vulns.length} other` : "—"} />
-            <Fact k="In Hallucination Atlas" v={ev.atlas ? `yes${ev.atlas.models.length ? ` · ${ev.atlas.models.length} models` : ""}` : "no"} />
+            <Fact k="In Hallucination Atlas" v={ev.atlas ? `yes${ev.atlas.models.length ? ` · ${ev.atlas.models.length} model${ev.atlas.models.length === 1 ? "" : "s"}` : ""}` : "no"} />
             <Fact k="Checked in" v={`${r.durationMs} ms${r.cached ? " (cached)" : ""}`} />
           </dl>
           {ev.sourceErrors.length > 0 && (
-            <p className="mt-3 text-sm text-warn">
+            <p className="mt-3 text-sm text-warn [overflow-wrap:anywhere]">
               Sources that failed: {ev.sourceErrors.map((e) => `${e.source}${e.critical ? " (critical — failing closed)" : ""}`).join(", ")}
             </p>
           )}

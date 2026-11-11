@@ -13,7 +13,7 @@ function npmrcRegistry(path: string): string | undefined {
 }
 
 /** Which npm registry this install will really hit: flag > env > project .npmrc (walking up) > ~/.npmrc > default. */
-export function npmRegistryFor(p: ParsedInstall, cwd: string, env = process.env): string | undefined {
+export function npmRegistryFor(p: Pick<ParsedInstall, "registry">, cwd: string, env = process.env): string | undefined {
   if (p.registry) return p.registry;
   const fromEnv = env.npm_config_registry ?? env.NPM_CONFIG_REGISTRY;
   if (fromEnv) return fromEnv;
@@ -28,7 +28,7 @@ export function npmRegistryFor(p: ParsedInstall, cwd: string, env = process.env)
   return npmrcRegistry(join(homedir(), ".npmrc"));
 }
 
-export function pypiIndexFor(p: ParsedInstall, env = process.env): string | undefined {
+export function pypiIndexFor(p: Pick<ParsedInstall, "registry">, env = process.env): string | undefined {
   const idx = p.registry ?? env.PIP_INDEX_URL ?? env.UV_INDEX_URL ?? env.UV_DEFAULT_INDEX;
   if (!idx) return undefined;
   // PEP 503 simple index URL → JSON API base (works for pypi.org mirrors that expose /pypi/<name>/json)

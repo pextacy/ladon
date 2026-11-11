@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Form from "next/form";
+import { headers } from "next/headers";
 import Link from "next/link";
-import { agoLabel, daysAgo } from "@/lib/format";
+import { agoLabel, ATLAS_PAGE_SIZE, daysAgo, fmtInt, parsePage } from "@/lib/format";
+import { appOrigin } from "@/lib/origin";
 import { getStore, type AtlasNameRecord } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -44,14 +46,26 @@ export default async function AtlasPage({ searchParams }: { searchParams: SP }) 
   const q = (one(sp.q) ?? "").trim().slice(0, 214);
   const ecoRaw = one(sp.eco);
   const eco = ecoRaw === "npm" || ecoRaw === "pypi" ? ecoRaw : undefined;
+  const page = parsePage(one(sp.page));
+  const origin = appOrigin(await headers());
 
   let data: { entries: AtlasNameRecord[]; total: number } | null = null;
   try {
-    data = await getStore().searchAtlas({ ...(eco ? { ecosystem: eco } : {}), ...(q ? { q } : {}), limit: 200 });
+    data = await getStore().searchAtlas({ ...(eco ? { ecosystem: eco } : {}), ...(q ? { q } : {}), limit: ATLAS_PAGE_SIZE, offset: (page - 1) * ATLAS_PAGE_SIZE });
   } catch {
     data = null;
   }
   const recent = data?.entries.filter((e) => e.registered && (daysAgo(e.registeredAt) ?? Infinity) < RECENT_DAYS).length ?? 0;
+  const pages = data ? Math.max(1, Math.ceil(data.total / ATLAS_PAGE_SIZE)) : 1;
+  const first = (page - 1) * ATLAS_PAGE_SIZE + 1;
+  const pageHref = (p: number) => {
+    const u = new URLSearchParams();
+    if (q) u.set("q", q);
+    if (eco) u.set("eco", eco);
+    if (p > 1) u.set("page", String(p));
+    const qs = u.toString();
+    return qs ? `/atlas?${qs}` : "/atlas";
+  };
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:py-16">
@@ -90,11 +104,13 @@ export default async function AtlasPage({ searchParams }: { searchParams: SP }) 
         ) : (
           <>
             <p className="text-sm text-muted">
-              {data.total} name{data.total === 1 ? "" : "s"}
+              {fmtInt(data.total)} name{data.total === 1 ? "" : "s"}
               {q ? ` matching “${q}”` : ""}
+              {eco ? ` on ${eco === "pypi" ? "PyPI" : "npm"}` : ""}
+              {pages > 1 && data.entries.length > 0 && ` · showing ${fmtInt(first)}–${fmtInt(first + data.entries.length - 1)}`}
               {recent > 0 && (
                 <>
-                  {" "}· <strong className="font-semibold text-hold">{recent} registered in the last {RECENT_DAYS} days</strong>
+                  {" "}· <strong className="font-semibold text-hold">{recent} {pages > 1 ? "on this page " : ""}registered in the last {RECENT_DAYS} days</strong>
                 </>
               )}
             </p>
@@ -114,7 +130,18 @@ export default async function AtlasPage({ searchParams }: { searchParams: SP }) 
                   {data.entries.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-4 py-6 text-muted">
-                        No names {q ? "match that search" : "yet"}.
+                        {data.total > 0 ? (
+                          <>
+                            There is no page {page}.{" "}
+                            <Link href={pageHref(pages)} className="text-fg underline">Go to the last page ({pages})</Link>.
+                          </>
+                        ) : q || eco ? (
+                          <>
+                            No names match that search. <Link href="/atlas" className="text-fg underline">Show all names</Link>.
+                          </>
+                        ) : (
+                          "No names yet — the nightly probe adds them as models invent them."
+                        )}
                       </td>
                     </tr>
                   )}
@@ -136,6 +163,23 @@ export default async function AtlasPage({ searchParams }: { searchParams: SP }) 
                 </tbody>
               </table>
             </div>
+            {pages > 1 && (
+              <nav aria-label="Atlas pages" className="mt-3 flex items-center justify-between gap-4 text-sm">
+                {page > 1 ? (
+                  <Link href={pageHref(Math.min(page - 1, pages))} className="underline" rel="prev">← Previous</Link>
+                ) : (
+                  <span />
+                )}
+                <span className="font-mono text-muted">
+                  page {page} of {pages}
+                </span>
+                {page < pages ? (
+                  <Link href={pageHref(page + 1)} className="underline" rel="next">Next →</Link>
+                ) : (
+                  <span />
+                )}
+              </nav>
+            )}
             <p className="mt-2 text-xs text-muted">
               Legend: <span aria-hidden="true">○</span> not registered · <span aria-hidden="true">▲</span> registered · <span aria-hidden="true">■</span> registered in the last {RECENT_DAYS} days. Ladon adds +35 risk to any Atlas name and +20 more when it was registered recently.
             </p>
@@ -172,7 +216,7 @@ export default async function AtlasPage({ searchParams }: { searchParams: SP }) 
             Reports carry the package name, the registry and optionally the model name. Never source code, prompts, file paths or
             environment variables.
           </p>
-          <pre className="mt-4 overflow-x-auto rounded-md bg-code px-4 py-3 font-mono text-[13px] leading-6">{`curl -X POST ${"https://ladon-one.vercel.app"}/api/atlas/report \\
+          <pre className="mt-4 overflow-x-auto rounded-md bg-code px-4 py-3 font-mono text-[13px] leading-6">{`curl -X POST ${origin}/api/atlas/report \\
   -H 'content-type: application/json' \\
   -d '{"ecosystem":"npm","name":"some-made-up-pkg","model":"claude-opus-5-5"}'`}</pre>
           <p className="mt-3 text-sm text-muted">

@@ -92,7 +92,8 @@ canaries, so this measures whether the rules catch known attack *shapes*, not no
 
 ```bash
 pnpm install && pnpm build && pnpm test
-node packages/cli/dist/index.js init --shell --passkey   # hooks + shims, pair a passkey
+alias ladon="node $PWD/packages/cli/dist/index.js"     # the repo is not published; the docs below say `ladon`
+node packages/cli/dist/index.js init --shell --passkey   # hooks + shims, pair a passkey (waits ≤ 5 min; --offline skips the web app)
 # add --cursor and/or --codex to also hook Cursor (~/.cursor/hooks.json) and Codex (~/.codex/hooks.json; run /hooks in Codex once to trust it)
 node packages/cli/dist/index.js check react-codeshift -v
 node packages/cli/dist/index.js scan                     # instruction files + agent hooks / MCP / auto-run tasks
@@ -118,9 +119,10 @@ Everything works with `LADON_AI=off`.
 ### Demo (local only, nothing is published anywhere)
 
 ```bash
-pnpm demo:registry                         # Verdaccio on 127.0.0.1:4873
-pnpm demo:publish-canaries                 # 16 harmless canaries; the script refuses non-local registries
-cd demo/scenarios/poisoned-agents-md && claude   # ask: "make the navbar sticky"
+pnpm demo:registry                         # terminal 1 (keeps running): Verdaccio on 127.0.0.1:4873
+pnpm demo:publish-canaries                 # terminal 2: 16 harmless canaries; the script refuses non-local registries
+pnpm demo:install-canary                   # without Ladon's shims on PATH the canary fires; with them it is held
+cd demo/scenarios/poisoned-agents-md && claude   # after `ladon init`; ask: "make the navbar sticky"
 ```
 
 Canary payloads only write `/tmp/ladon-canary-pwned` and ping `127.0.0.1`. See `demo/scenarios/*/README.md`.
@@ -129,7 +131,7 @@ Canary payloads only write `/tmp/ladon-canary-pwned` and ping `127.0.0.1`. See `
 
 ```
 packages/core   parser, sources, rules R01–R15, scoring, analyzers, approval protocol, intent judge
-packages/cli    ladon init|check|scan|watch|status|log|key|passkey|allow|shim|daemon|hook
+packages/cli    ladon init|check|scan|audit|watch|status|log|key|passkey|allow|shim|daemon|hook
 apps/web        Next.js: /check, /atlas, /approve/[id], /pair, /dashboard, /api/*
 firmware        Ladon Key (PlatformIO, ESP32-S3)
 hardware        BOM, wiring, enclosure DXF

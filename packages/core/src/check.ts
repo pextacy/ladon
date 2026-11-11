@@ -157,7 +157,9 @@ async function gatherNpm(ev: Evidence, target: InstallTarget, deps: CheckDeps, o
     return;
   }
   ev.exists = true;
-  const version = resolveNpmVersion(info, target.versionSpec) ?? info.distTags.latest;
+  const resolved = resolveNpmVersion(info, target.versionSpec);
+  if (target.versionSpec && !resolved) ev.versionUnmatched = true;
+  const version = resolved ?? info.distTags.latest;
   const v = version ? info.versions[version] : undefined;
   if (version) ev.version = version;
   const prev = version ? previousNpmVersion(info, version) : undefined;
@@ -248,7 +250,9 @@ async function gatherPypi(ev: Evidence, target: InstallTarget, deps: CheckDeps, 
     return;
   }
   ev.exists = true;
-  const version = resolvePypiVersion(info, target.versionSpec) ?? info.latest;
+  const resolved = resolvePypiVersion(info, target.versionSpec);
+  if (target.versionSpec && !resolved) ev.versionUnmatched = true;
+  const version = resolved ?? info.latest;
   if (version) ev.version = version;
   const rel = version ? info.releases[version] : undefined;
   const prev = version ? previousPypiVersion(info, version) : undefined;

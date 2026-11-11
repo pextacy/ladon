@@ -160,15 +160,19 @@ each newly registered name as JSON `{ text, content, ecosystem, name, registered
 
 ```bash
 pnpm install
-cp .env.example .env    # SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY, LADON_AI=on
+cp .env.example apps/web/.env.local   # web app only (Next.js reads env files from apps/web): SUPABASE_*, LADON_SESSION_SECRET, ANTHROPIC_API_KEY, LADON_AI=on
+                                      # without Supabase the web app runs on an in-memory store (fine for local testing)
 pnpm build && pnpm test
 pnpm eval               # confusion matrix → docs/EVAL.md (needs the demo registry below)
 pnpm --filter web dev                       # http://localhost:3000
 pnpm --filter @ladon/cli build && node packages/cli/dist/index.js init --shell --passkey
-# daemon/intent judge read optional ~/.ladon/env (ANTHROPIC_API_KEY=…, LADON_AI=on)
+# the CLI does not read .env: daemon/intent judge read optional ~/.ladon/env (ANTHROPIC_API_KEY=…, LADON_AI=on);
+# LADON_HOME / LADON_DAEMON_PORT / LADON_WEB_URL are plain shell environment variables
 # Demo registry (local only; no Docker needed)
-pnpm demo:registry            # Verdaccio on 127.0.0.1:4873, config in demo/verdaccio/config.yaml
+pnpm demo:registry            # Verdaccio on 127.0.0.1:4873 (keeps running — use a second terminal), config in demo/verdaccio/config.yaml
 pnpm demo:publish-canaries && pnpm demo:install-canary
+# Passkey end-to-end (software authenticator): pnpm --filter web start -p 3456, then
+WEB=http://localhost:3456 pnpm e2e:passkey
 # Firmware
 cd firmware && pio run -t upload && cd .. && node packages/cli/dist/index.js key pair   # not `npx ladon`: that would fetch an unrelated public npm package
 ```

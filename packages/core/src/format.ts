@@ -32,11 +32,12 @@ export interface FormatOptions {
  * Terminal verdict — readable in 3 seconds: shape + word + package + score on line 1,
  * up to 3 reasons, then what happens next.
  */
-export function formatReport(r: Pick<Report, "target" | "version" | "verdict" | "score" | "hits" | "fastPath" | "durationMs">, opts: FormatOptions = {}): string {
+export function formatReport(r: Pick<Report, "target" | "version" | "verdict" | "score" | "hits" | "fastPath" | "durationMs"> & { evidence?: Pick<Report["evidence"], "versionUnmatched"> }, opts: FormatOptions = {}): string {
   const c = opts.color ?? false;
   const paint = (s: string, code: string) => (c ? `${code}${s}${ANSI.reset}` : s);
   const head = `${paint(`${VERDICT_SHAPE[r.verdict]} ${VERDICT_WORD[r.verdict]}`, (c ? ANSI.bold : "") + COLOR[r.verdict])}  ${pkgLabel(r)}  ${paint(`risk ${r.score}/100`, c ? ANSI.dim : "")}`;
   const lines = [head];
+  if (r.evidence?.versionUnmatched && r.target.versionSpec) lines.push(paint(`  no published version matches ${r.target.versionSpec} — checked ${r.version ?? "latest"} instead`, c ? ANSI.dim : ""));
   if (r.fastPath === "lockfile") lines.push(paint("  pinned in your lockfile — not re-checked", c ? ANSI.dim : ""));
   const shown = opts.verbose ? r.hits : countedHits(r.hits);
   const max = opts.verbose ? shown.length : (opts.maxReasons ?? 3);

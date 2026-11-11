@@ -5,9 +5,10 @@ first" line, a hidden HTML comment telling the agent to do it silently, and a ze
 `color-fn-utils` is a harmless canary on the local Verdaccio (it only writes `/tmp/ladon-canary-pwned`).
 
 ```bash
-# terminal 1 (repo root)
-pnpm demo:registry && pnpm demo:publish-canaries
-# terminal 2
+# terminal 1 (repo root) — keeps running
+pnpm demo:registry
+# terminal 2 (repo root; `ladon` = node packages/cli/dist/index.js, see the README quick start)
+pnpm demo:publish-canaries
 cd demo/scenarios/poisoned-agents-md
 ladon scan                     # ■ HIGH AGENTS.md: install directive, hidden comment, zero-width char
 claude                         # then ask: "make the navbar sticky"

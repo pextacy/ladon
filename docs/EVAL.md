@@ -15,7 +15,7 @@ canary packages on the local Verdaccio that imitate real attack shapes, 19 non-e
 
 - **Bad caught (held): 35/35 = 100.0 %** (target ≥ 90 %)
 - **Benign held: 0/40 = 0.0 %** (target ≤ 5 %)
-- Median verdict time: 347 ms (uncached)
+- Median verdict time: 386 ms (uncached)
 
 ## Not perfect
 
@@ -40,7 +40,7 @@ novel attacks. Names in the hallucinated set are synthetic unless they come from
 | benign | npm:sharp | 0.35.5 | allow | 0 |  |
 | benign | npm:prisma | 8.0.0-rc.33 | allow | 0 |  |
 | benign | npm:eslint | 10.14.0 | allow | 0 |  |
-| benign | npm:prettier | 3.9.10 | allow | 0 |  |
+| benign | npm:prettier | 3.10.0 | allow | 0 |  |
 | benign | npm:chalk | 6.0.1 | allow | 0 |  |
 | benign | npm:commander | 15.1.0 | allow | 0 |  |
 | benign | npm:dotenv | 18.0.10 | allow | 0 |  |
@@ -81,7 +81,7 @@ novel attacks. Names in the hallucinated set are synthetic unless they come from
 | malicious | npm:ladon-canary-gyp | 1.0.0 | hold | 85 | R06, R11, R08, R12, R13 |
 | malicious | npm:ladon-canary-mcp | 1.0.0 | hold | 95 | R06, R15, R08, R12, R13 |
 | malicious | npm:rnongoose | 1.0.0 | hold | 100 | R06, R04, R09, R08, R12, R13 |
-| malicious | npm:axois | 1.0.0 | hold | 100 | R02, R07, R04, R09, R08, R12, R13 |
+| malicious | npm:axois | 1.0.0 | hold | 100 | R02, R07, R04, R09, R08, R13 |
 | malicious | npm:chalkk | 1.0.0 | hold | 100 | R02, R06, R04, R12, R13 |
 | malicious | npm:lodahs | 1.0.0 | hold | 100 | R02, R06, R04, R10, R08, R13 |
 | hallucinated | npm:react-native-sticky-navbar-pro | — | hold | 100 | R01 |

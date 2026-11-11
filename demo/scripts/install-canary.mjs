@@ -12,7 +12,20 @@ const pkg = process.argv[2] ?? "color-fn-utils";
 rmSync(marker, { force: true });
 const dir = mkdtempSync(join(tmpdir(), "ladon-demo-"));
 writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "ladon-demo-victim", private: true }));
-execFileSync("npm", ["install", pkg, "--registry", registry, "--no-audit", "--no-fund"], { cwd: dir, stdio: "inherit" });
+try {
+  execFileSync("npm", ["install", pkg, "--registry", registry, "--no-audit", "--no-fund"], { cwd: dir, stdio: "inherit" });
+} catch (e) {
+  rmSync(dir, { recursive: true, force: true });
+  const fired = existsSync(marker);
+  console.error(
+    `\nnpm install ${pkg} failed (exit ${e.status ?? "?"}).` +
+      (fired
+        ? ` The canary payload still ran — see ${marker}.`
+        : " The canary did not run. If Ladon's shims are on your PATH, this is Ladon blocking the install (see the reasons above).") +
+      `\nIs the demo registry up at ${registry}? (pnpm demo:registry)`,
+  );
+  process.exit(fired ? 1 : 3);
+}
 
 if (!existsSync(marker)) {
   console.error(`FAIL: ${pkg} installed but canary marker ${marker} was not written`);

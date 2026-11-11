@@ -4,7 +4,7 @@ import { constants as osConstants } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { parseInstallCommand } from "@ladon/core";
 import { CLI_ENTRY, gateCommand } from "./client.js";
-import { PATHS } from "./config.js";
+import { PATHS, stableNodePath } from "./config.js";
 
 export const SHIMMED = ["npm", "npx", "pnpm", "pnpx", "yarn", "bun", "bunx", "pip", "pip3", "uv", "uvx", "poetry", "pipx", "pipenv"] as const;
 /** Pure-sh shims: only `python -m pip|uv …` starts Ladon; everything else execs the real python directly. */
@@ -150,7 +150,7 @@ exit 127
 export function installShims(): string[] {
   mkdirSync(PATHS.shims, { recursive: true });
   const written: string[] = [];
-  const launcher = (tool: string) => `${shq(process.execPath)} ${shq(CLI_ENTRY)} shim-exec ${tool}`;
+  const launcher = (tool: string) => `${shq(stableNodePath())} ${shq(CLI_ENTRY)} shim-exec ${tool}`;
   for (const tool of SHIMMED) {
     const p = join(PATHS.shims, tool);
     writeFileSync(p, `#!/bin/sh\n${MARK}\nexec ${launcher(tool)} "$@"\n`);

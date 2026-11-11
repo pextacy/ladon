@@ -5,6 +5,7 @@ Models sometimes reach for `react-codeshift` — a conflation of `jscodeshift` a
 that someone has since registered on npm.
 
 ```bash
+# `ladon` = node packages/cli/dist/index.js (alias from the README quick start)
 ladon check react-codeshift -v
 # ■ HOLD npm:react-codeshift@1.0.0 risk 75/100
 #   • AI models hallucinate this name (Hallucination Atlas)

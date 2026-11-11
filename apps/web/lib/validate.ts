@@ -10,9 +10,9 @@ const pkgName = z
   .string()
   .trim()
   .min(1, "package name is required")
-  .max(214)
-  .regex(/^(@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9._~-]+$/, "not a valid npm or PyPI package name");
-export const EcosystemParam = z.enum(["npm", "pypi"]);
+  .max(214, "package names are at most 214 characters")
+  .regex(/^(@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9._~-]+$/, "not a valid npm or PyPI package name — letters, digits, . _ ~ - and an optional @scope/");
+export const EcosystemParam = z.enum(["npm", "pypi"], { error: "registry must be npm or pypi" });
 /**
  * Reasons are rule details written by core (e.g. the intent-drift detail is up to ~210 chars, the
  * "does not exist" detail embeds a 214-char name). Truncate instead of rejecting: a 400 here would make
@@ -108,7 +108,7 @@ export const DecisionBody = z.object({
 export const CheckQuery = z.object({
   eco: EcosystemParam.default("npm"),
   name: pkgName,
-  v: z.string().trim().max(100).optional(),
+  v: z.string().trim().max(100, "versions are at most 100 characters").optional(),
 });
 
 export const MANIFEST_MAX_BYTES = 200 * 1024;

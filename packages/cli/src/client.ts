@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, openSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -18,7 +18,31 @@ const proofOk = (given: string | null, expected: string) => {
   return a.length === b.length && timingSafeEqual(a, b);
 };
 
-export type DaemonProbe = { state: "down" } | { state: "impostor" } | { state: "up"; version: string };
+export type DaemonProbe = { state: "down" } | { state: "impostor"; pid?: number } | { state: "up"; version: string };
+
+const claimedPid = (text: string): number | undefined => {
+  try {
+    const pid = (JSON.parse(text) as { pid?: unknown }).pid;
+    return typeof pid === "number" && Number.isSafeInteger(pid) && pid > 1 ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * A daemon from a Ladon build before the authenticity proof can't prove itself, so it looks like an
+ * impostor — and it would hold the port (and the Key's serial port) forever. If the pid it reports is
+ * really `node <this CLI> daemon`, it is ours: stop it with a signal (no token is sent anywhere).
+ */
+export function isOurDaemonProcess(pid: number, entry = CLI_ENTRY): boolean {
+  if (pid === process.pid || process.platform === "win32") return false;
+  try {
+    const r = spawnSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8", timeout: 1000 });
+    return r.status === 0 && r.stdout.trim().endsWith(` ${entry} daemon`);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Is the real daemon listening? Something answering /health is not enough: it must prove it knows the
@@ -34,7 +58,10 @@ export async function probeDaemon(base = BASE): Promise<DaemonProbe> {
   } catch {
     return { state: "down" };
   }
-  if (!res.ok || !proofOk(res.headers.get("x-ladon-proof"), daemonProof(daemonToken(), c, text))) return { state: "impostor" };
+  if (!res.ok || !proofOk(res.headers.get("x-ladon-proof"), daemonProof(daemonToken(), c, text))) {
+    const pid = claimedPid(text);
+    return pid ? { state: "impostor", pid } : { state: "impostor" };
+  }
   try {
     const v = (JSON.parse(text) as { version?: unknown }).version;
     return { state: "up", version: typeof v === "string" ? v : "" };
@@ -64,6 +91,15 @@ async function stopDaemon(base: string) {
 
 export async function ensureDaemon(base = BASE): Promise<boolean> {
   let p = await probeDaemon(base);
+  if (p.state === "impostor" && p.pid && isOurDaemonProcess(p.pid)) {
+    // pre-proof daemon from an older build of this same install: replace it
+    try {
+      process.kill(p.pid, "SIGTERM");
+    } catch {
+      /* gone already */
+    }
+    for (let i = 0; i < 20 && (p = await probeDaemon(base)).state !== "down"; i++) await new Promise((r) => setTimeout(r, 100));
+  }
   if (p.state === "impostor") return false; // never talk to it; the caller gates in-process
   if (p.state === "up" && p.version === LADON_VERSION) return true;
   if (p.state === "up") await stopDaemon(base); // stale daemon from an older install: replace it

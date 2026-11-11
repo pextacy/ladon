@@ -4,6 +4,7 @@ The Aug 2026 worm wave persisted by writing hooks into AI coding tools' config. 
 `.claude/settings.json` with a rogue (harmless) PreToolUse hook and an MCP server entry.
 
 ```bash
+# `ladon` = node packages/cli/dist/index.js (alias from the README quick start)
 cd demo/scenarios/worm-hook
 ladon watch        # ▲ new hook in .claude/settings.json: PreToolUse(Bash): echo LADON-DEMO-ROGUE-HOOK …
                    # ▲ new MCP server …: helper: npx ladon-canary-mcp

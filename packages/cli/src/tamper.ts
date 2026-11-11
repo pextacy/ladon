@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { basename as coreBasename, effectiveCommands } from "@ladon/core";
 import { LADON_HOME } from "./config.js";
 
 /**
@@ -51,7 +52,27 @@ export function protectedPath(p: string, cwd: string): string | null {
   return null;
 }
 
-const SENSITIVE_SUB = /\b(?:ladon|index\.js)['"]?\s+(?:init|key\s+pair|passkey\s+pair|shim\s+uninstall|config)\b/i;
+/**
+ * Raw-text match (case-sensitive, so prose like `git commit -m "Ladon init …"` passes) plus a
+ * case-insensitive match on the parsed commands — `LADON init` runs `ladon` on a case-insensitive disk.
+ */
+const SENSITIVE_SUB = /\b(?:ladon|index\.js)['"]?\s+(?:init|key\s+pair|passkey\s+pair|shim\s+uninstall|config)\b/;
+const SENSITIVE_ARGS = /^(?:init|key pair|passkey pair|shim uninstall|config)\b/i;
+
+function runsSensitiveSub(command: string): boolean {
+  if (SENSITIVE_SUB.test(command)) return true;
+  if (!/ladon|index\.js/i.test(command)) return false;
+  try {
+    for (const words of effectiveCommands(command)) {
+      for (let k = 0; k < words.length - 1; k++) {
+        if (/^(?:ladon|index\.js)$/i.test(coreBasename(words[k]!)) && SENSITIVE_ARGS.test(words.slice(k + 1, k + 3).join(" "))) return true;
+      }
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
 const WRITEISH =
   /(>|\btee\b|\bg?sed\b[^|;&]*\s-[a-zA-Z]*i|\bmv\b|\bcp\b|\brm\b|\bln\b|\bchmod\b|\btruncate\b|\bjq\b|\bpython[\d.]*\b|\b(?:node|bun|deno)\b[^|;&]*\s(?:-e|-p|--eval|--print|eval)\b|\bperl\b|\bruby\b|\bphp\b|\bawk\b|\bgawk\b|\bosascript\b|\bdd\b|\binstall\b|\bunlink\b|\brsync\b|\bditto\b|\btar\b|\bunzip\b|\bcurl\b|\bwget\b|\bgit\s+(?:checkout|restore|apply|stash|reset)\b|\b(?:vi|vim|nvim|ex|ed|nano|emacs)\b|\bopen\(|writeFile)/i;
 
@@ -65,8 +86,8 @@ export function tamperReasonBash(command: string): string | null {
     LADON_DIR.test(command) ||
     /\bLADON_HOME\s*=/i.test(command);
   if (ladonRef) return "touches Ladon's configuration (~/.ladon)";
-  if (SENSITIVE_SUB.test(command)) return "changes who can approve installs (pairing / init / removing shims)";
-  if (/\.claude\/settings(\.local)?\.json|\.cursor\/hooks\.json|\.claude\.json|\.codex\/(hooks\.json|config\.toml)/i.test(command) && WRITEISH.test(command)) return "modifies AI-tool hook configuration";
+  if (runsSensitiveSub(command)) return "changes who can approve installs (pairing / init / removing shims)";
+  if (/\.claude\/settings(\.local)?\.json|\.cursor\/hooks\.json|\.claude\.json|\.codex\/(hooks\.json|config\.toml)/i.test(command) && WRITEISH.test(command.replace(/\d*>>?\s*\/dev\/null\b|\d*>&\d*-?/g, " "))) return "modifies AI-tool hook configuration";
   if (/\bLADON_(?:DAEMON_PORT|KEY_PORT|WEB_URL)\s*=/i.test(command)) return "redirects Ladon to a different daemon / key / server";
   return null;
 }

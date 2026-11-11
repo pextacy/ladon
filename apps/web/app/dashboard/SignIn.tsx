@@ -38,16 +38,31 @@ export function SignIn() {
 
 export function SignOut() {
   const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
   return (
-    <button
-      type="button"
-      className="text-sm underline"
-      onClick={async () => {
-        await fetch("/api/session", { method: "DELETE" });
-        router.refresh();
-      }}
-    >
-      Sign out
-    </button>
+    <span className="text-sm">
+      <button
+        type="button"
+        className="underline disabled:opacity-50"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setFailed(false);
+          try {
+            const res = await fetch("/api/session", { method: "DELETE", credentials: "same-origin" });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            router.refresh();
+          } catch {
+            setFailed(true);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Signing out…" : "Sign out"}
+      </button>
+      {failed && <span role="alert" className="ml-2 text-warn">Couldn&apos;t sign out — try again.</span>}
+    </span>
   );
 }

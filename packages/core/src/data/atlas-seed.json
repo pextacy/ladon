@@ -14,8 +14,8 @@
       "name": "react-codeshift",
       "models": [],
       "seenCount": 1,
-      "registeredAt": null,
-      "source": "Aikido Security, Jan 2026: conflation of jscodeshift + react-codemod spread via agent skills (verify)"
+      "registeredAt": "2026-01-14T21:02:51Z",
+      "source": "Aikido Security, Jan 2026: conflation of jscodeshift + react-codemod spread via agent skills; registered on npm 2026-01-14 as a defensive placeholder (\"Placeholder to prevent dependency confusion\")"
     }
   ]
 }

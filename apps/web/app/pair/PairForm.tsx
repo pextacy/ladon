@@ -5,16 +5,17 @@ import type { PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/bro
 import { useState } from "react";
 import { passkeyErrorMessage, postJson } from "@/lib/client";
 
-export function PairForm({ initialCode }: { initialCode: string }) {
+export function PairForm({ initialCode, problem = null }: { initialCode: string; problem?: string | null }) {
   const [code, setCode] = useState(initialCode);
   const [label, setLabel] = useState("My phone");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(problem);
   const [done, setDone] = useState(false);
   const valid = /^[A-Z2-9]{8}$/.test(code);
 
   async function pair(e: React.FormEvent) {
     e.preventDefault();
+    if (busy || !valid) return;
     setBusy(true);
     setError(null);
     try {
@@ -33,7 +34,7 @@ export function PairForm({ initialCode }: { initialCode: string }) {
     return (
       <div aria-live="polite" className="mt-8 rounded-lg border-2 border-allow bg-allow-bg px-5 py-4">
         <p className="font-mono text-2xl font-bold text-allow">✓ PAIRED</p>
-        <p className="mt-1">Go back to your terminal — <code className="font-mono">ladon init</code> will pick up this passkey within a few seconds.</p>
+        <p className="mt-1">Go back to your terminal — Ladon picks up this passkey within a few seconds and asks you to confirm it there.</p>
       </div>
     );
   }
@@ -45,7 +46,10 @@ export function PairForm({ initialCode }: { initialCode: string }) {
         <input
           id="code"
           value={code}
-          onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z2-9]/g, "").slice(0, 8))}
+          onChange={(e) => {
+            setCode(e.target.value.toUpperCase().replace(/[^A-Z2-9]/g, "").slice(0, 8));
+            setError(null);
+          }}
           inputMode="text"
           autoCapitalize="characters"
           autoComplete="one-time-code"

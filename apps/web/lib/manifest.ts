@@ -31,7 +31,9 @@ export function parseManifest(filename: string, content: string, maxDeps = MANIF
       return { ok: false, error: "package.json is not valid JSON" };
     }
     if (typeof json !== "object" || json === null || Array.isArray(json)) return { ok: false, error: "package.json must be a JSON object" };
-    const r = parsePackageJsonDeps(json);
+    // A dependency section must be a name → range object; an array would turn its indexes ("0", "1") into package names.
+    const sane = Object.fromEntries(Object.entries(json).filter(([, v]) => !Array.isArray(v)));
+    const r = parsePackageJsonDeps(sane);
     targets = r.targets;
     skipped = r.nonRegistry.map((s) => `${s} (not from the registry — not checked)`);
   } else if (kind === "pyproject.toml" || kind === "Pipfile") {

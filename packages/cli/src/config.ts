@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -18,6 +18,32 @@ export const PATHS = {
 };
 export const DAEMON_PORT = Number(process.env.LADON_DAEMON_PORT ?? 7433);
 export const DEFAULT_WEB_URL = "https://ladon-one.vercel.app";
+
+/**
+ * The Node binary written into hooks and shims. Homebrew's process.execPath is a versioned Cellar path
+ * (/opt/homebrew/Cellar/node/25.2.1/bin/node) that is deleted by `brew upgrade node`: every shim would then
+ * break and every agent hook would exit 127 — which Claude Code treats as a non-blocking error, i.e. the
+ * install runs unchecked. Prefer Homebrew's stable `opt/<formula>` (or `bin`) symlink when it resolves to
+ * the very same binary; anything else is returned unchanged.
+ */
+export function stableNodePath(exec = process.execPath): string {
+  const m = /^(.*)\/Cellar\/([^/]+)\/[^/]+\/bin\/node$/.exec(exec);
+  if (!m) return exec;
+  let real: string;
+  try {
+    real = realpathSync(exec);
+  } catch {
+    return exec;
+  }
+  for (const c of [`${m[1]}/opt/${m[2]}/bin/node`, `${m[1]}/bin/node`]) {
+    try {
+      if (realpathSync(c) === real) return c;
+    } catch {
+      /* not there */
+    }
+  }
+  return exec;
+}
 
 export const PinnedPasskey = z.object({ credentialId: z.string(), publicKey: z.string(), counter: z.number().int().nonnegative(), label: z.string().optional() });
 export type PinnedPasskey = z.infer<typeof PinnedPasskey>;

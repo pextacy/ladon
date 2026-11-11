@@ -87,6 +87,20 @@ const recentlyApproved = new Map<string, number>();
 const APPROVAL_MEMORY_MS = 10 * 60_000;
 const memKey = (r: Report) => `${r.target.ecosystem}:${r.target.name}@${r.version ?? r.target.versionSpec ?? ""}`;
 
+/** A bin or package already installed in node_modules between cwd and the project root. */
+export function localBin(cwd: string, name: string): boolean {
+  let dir = resolve(cwd);
+  for (let i = 0; i < 40; i++) {
+    const nm = join(dir, "node_modules");
+    if (existsSync(join(nm, ".bin", name.replace(/^@[^/]+\//, ""))) || existsSync(join(nm, name, "package.json"))) return true;
+    if (existsSync(join(dir, ".git"))) return false;
+    const up = dirname(dir);
+    if (up === dir) return false;
+    dir = up;
+  }
+  return false;
+}
+
 function findUp(start: string, names: readonly string[]): string[] {
   const found: string[] = [];
   let dir = resolve(start);
@@ -175,7 +189,8 @@ export function targetsFor(p: ParsedInstall, cwd: string, lock: LockfileIndex): 
       targets.push(...r.targets);
       unverifiable.push(...r.unverifiable);
     }
-    if (p.kind !== "manifest") return { targets, unverifiable };
+    // -r / --with-requirements files are read whatever the install kind: `pip install -r req.txt x`,
+    // `pip install -f ./wheels -r req.txt` and `uvx --with-requirements req.txt tool` install them too.
     const seen = new Set<string>();
     const queue = p.requirementFiles.map((f) => resolve(cwd, f));
     while (queue.length > 0) {
@@ -193,7 +208,7 @@ export function targetsFor(p: ParsedInstall, cwd: string, lock: LockfileIndex): 
     }
     // Project-manager installs (uv sync, poetry install, pipenv install/sync) resolve the project
     // manifest through its lockfile: like npm ci, only dependencies not pinned in the lock are checked.
-    if (p.requirementFiles.length === 0 && !p.projectDirs && (p.manager === "uv" || p.manager === "poetry" || p.manager === "pipenv")) {
+    if (p.kind === "manifest" && p.requirementFiles.length === 0 && !p.projectDirs && (p.manager === "uv" || p.manager === "poetry" || p.manager === "pipenv")) {
       const file = findUp(cwd, [p.manager === "pipenv" ? "Pipfile" : "pyproject.toml"])[0];
       if (file) {
         try {
@@ -206,6 +221,11 @@ export function targetsFor(p: ParsedInstall, cwd: string, lock: LockfileIndex): 
       }
     }
     return { targets, unverifiable };
+  }
+  if (p.kind === "exec" && (p.manager === "npm" || p.manager === "bun")) {
+    // `npx tsc` / `bunx vitest` run the project's own binary when it's installed locally — nothing is
+    // fetched, and checking the unrelated registry package of the same name would be a false alarm.
+    return { targets: p.targets.filter((t) => t.versionSpec || !localBin(cwd, t.name)), unverifiable };
   }
   if (p.kind !== "manifest") return { targets: p.targets, unverifiable };
   // npm-family manifest install: the lockfile was reviewed when it was committed; check only

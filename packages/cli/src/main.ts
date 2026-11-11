@@ -27,6 +27,7 @@ import { ensureDaemon } from "./client.js";
 import { DAEMON_PORT, loadConfig, loadState, PATHS, saveState } from "./config.js";
 import { runDaemon } from "./daemon.js";
 import { loadLockfiles } from "./gate.js";
+import { isDefaultNpm, npmRegistryFor, pypiIndexFor } from "./registry.js";
 import { claudePreToolUse, claudeSessionStart, codexPreToolUse, cursorBeforeShell, cursorBeforeSubmitPrompt } from "./hook.js";
 import { init, pairKey, registerDevice, waitForPasskey } from "./init.js";
 import { defaultApprovers, loadLadonEnv } from "./runtime.js";
@@ -39,11 +40,13 @@ const HELP = `ladon ${LADON_VERSION} — a firewall between AI coding agents and
   ladon init [--project] [--cursor] [--codex] [--shell] [--passkey] [--offline] [--atlas-reports]
                              install Claude Code (+ Cursor / Codex) hooks + shims, pair Key / passkey
   ladon check <pkg>[@v] [--pypi] [-v] [--json] [--registry URL]
-                             verdict for one package
+                             verdict for one package (exit 0 allow, 1 warn, 2 hold); uses the
+                             registry an install here would use (.npmrc, PIP_INDEX_URL)
   ladon scan                 scan instruction files (AGENTS.md, CLAUDE.md, …) here → repo → home,
                              then list agent hooks / MCP servers / auto-run tasks (read-only)
   ladon audit [--json]       check every lockfile dependency against Atlas alerts (hallucinated,
-                             then registered) and OSV malicious-package advisories; exit 1 on findings
+                             then registered) and OSV malicious-package advisories; exit 1 on
+                             findings, 2 when a source could not be checked
   ladon watch                show new hooks / MCP servers in AI-tool configs since the baseline
   ladon status               what is installed, paired and running
   ladon log [-n 20]          recent decisions
@@ -61,6 +64,9 @@ There is intentionally no command or flag that approves an install. Only the Lad
 const out = (s: string) => process.stdout.write(s + "\n");
 const err = (s: string) => process.stderr.write(s + "\n");
 
+/** Bad command-line usage: printed as `ladon <cmd>: <message>` plus the command's usage, exit 2. */
+export class UsageError extends Error {}
+
 function flag(args: string[], name: string): boolean {
   const i = args.indexOf(name);
   if (i >= 0) args.splice(i, 1);
@@ -70,9 +76,36 @@ function opt(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
   if (i < 0) return undefined;
   const v = args[i + 1];
+  if (v === undefined || v.startsWith("-")) throw new UsageError(`${name} needs a value`);
   args.splice(i, 2);
   return v;
 }
+/**
+ * Call after a command took its known flags: anything left that looks like a flag, or more positional
+ * arguments than the command takes, is a usage error — not silently ignored, and never read as a package
+ * name (`ladon check --pypy requests` used to check an npm package called "--pypy").
+ */
+export function rejectExtra(args: string[], maxPositional = 0): void {
+  const f = args.find((a) => a.startsWith("-") && a !== "-");
+  if (f) throw new UsageError(`unknown option '${f}'`);
+  if (args.length > maxPositional) throw new UsageError(`unexpected argument '${args[maxPositional]}'`);
+}
+
+const USAGE: Record<string, string> = {
+  init: "ladon init [--project] [--cursor] [--codex] [--shell] [--passkey] [--offline] [--atlas-reports]",
+  check: "ladon check <pkg>[@version] [--pypi] [-v] [--json] [--registry URL]",
+  scan: "ladon scan",
+  audit: "ladon audit [--json]",
+  watch: "ladon watch",
+  status: "ladon status",
+  log: "ladon log [-n 20]",
+  key: "ladon key pair|status",
+  passkey: "ladon passkey pair|list",
+  allow: "ladon allow <pkg>[@exact-version] [--pypi]\n       ladon allow --remove <pkg>[@version] [--pypi]\n       ladon allow --list",
+  shim: "ladon shim install|uninstall|status",
+  daemon: "ladon daemon",
+  config: "ladon config",
+};
 
 export function parseTarget(spec: string, pypi: boolean): InstallTarget | null {
   let s = spec;
@@ -87,11 +120,16 @@ export function parseTarget(spec: string, pypi: boolean): InstallTarget | null {
   return r.target ?? null;
 }
 
-/** One-paragraph LLM explanation (same as the web checker) when LADON_AI=on and a key is set; else null. */
-async function explainWithAi(r: Report): Promise<string | null> {
+/**
+ * One-paragraph LLM explanation (same as the web checker) when LADON_AI=on and a key is set. `note` says
+ * why there is none when the user asked for AI (LADON_AI=on) but it could not be used.
+ */
+async function explainWithAi(r: Report): Promise<{ text: string | null; note?: string }> {
   loadLadonEnv();
+  const wanted = (process.env.LADON_AI ?? "off").toLowerCase() === "on";
   const ai = await import("@ladon/core/ai").catch(() => null);
-  if (!ai || !ai.aiEnabled()) return null;
+  if (!ai) return { text: null, ...(wanted ? { note: "AI module failed to load" } : {}) };
+  if (!ai.aiEnabled()) return { text: null, ...(wanted ? { note: `LADON_AI=on but ANTHROPIC_API_KEY is not set (shell or ${PATHS.home.replace(homedir(), "~")}/env)` } : {}) };
   try {
     const text = await ai.anthropicProvider({ timeoutMs: 8000 }).explain({
       package: pkgLabel(r),
@@ -99,9 +137,9 @@ async function explainWithAi(r: Report): Promise<string | null> {
       score: r.score,
       reasons: countedHits(r.hits).slice(0, 5).map((h) => h.detail),
     });
-    return text || null;
-  } catch {
-    return null;
+    return text ? { text } : { text: null, note: "the AI returned no explanation" };
+  } catch (e) {
+    return { text: null, note: `AI explanation failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}` };
   }
 }
 
@@ -109,32 +147,40 @@ async function cmdCheck(args: string[]): Promise<number> {
   const pypi = flag(args, "--pypi");
   const verbose = flag(args, "-v") || flag(args, "--verbose");
   const json = flag(args, "--json");
-  const registry = opt(args, "--registry");
+  const flagRegistry = opt(args, "--registry");
+  rejectExtra(args, 1);
   const spec = args[0];
-  if (!spec) {
-    err("usage: ladon check <pkg>[@version] [--pypi]");
-    return 2;
-  }
+  if (!spec) throw new UsageError("missing package name");
   const target = parseTarget(spec, pypi);
   if (!target) {
     err(`ladon: "${spec}" is not a registry package name`);
     return 2;
   }
   const cfg = loadConfig();
+  // Same registry the install would hit (and the gate checks): --registry > env > .npmrc / PIP_INDEX_URL.
+  const registry = checkRegistry(target.ecosystem, flagRegistry, process.cwd());
   const deps = createDeps({ cacheDir: PATHS.cache, atlasUrl: cfg.webUrl, ...(registry ? (target.ecosystem === "npm" ? { npmRegistry: registry } : { pypiIndex: registry }) : {}) });
   const r = await checkPackage(target, deps, { lockfile: loadLockfiles(process.cwd()), failMode: cfg.failMode });
   if (json) {
     out(JSON.stringify(r, null, 2));
   } else {
     out(formatReport(r, { color: !!process.stdout.isTTY, verbose }));
+    if (registry && !(target.ecosystem === "npm" ? isDefaultNpm(registry) : /^https:\/\/pypi\.org\/?$/.test(registry))) out(`  (checked against ${registry})`);
     if (verbose) {
       const ai = await explainWithAi(r);
-      out(`\n${ai ? `${ai}\n  (explanation written by AI from the evidence above; the verdict comes from the rules)` : explainDeterministic(r)}`);
+      out(`\n${ai.text ? `${ai.text}\n  (explanation written by AI from the evidence above; the verdict comes from the rules)` : explainDeterministic(r)}`);
+      if (ai.note) out(`  (${ai.note}; showing the rule-based explanation)`);
       for (const e of r.evidence.errors) out(`  source problem: ${e.source}: ${e.message}`);
       out(`  (${r.durationMs} ms)`);
     }
   }
   return r.verdict === "allow" ? 0 : r.verdict === "warn" ? 1 : 2;
+}
+
+/** The registry `ladon check` should ask: an explicit --registry, else what an install from `cwd` would use. */
+export function checkRegistry(ecosystem: "npm" | "pypi", flagValue: string | undefined, cwd: string, env = process.env): string | undefined {
+  const p = flagValue ? { registry: flagValue } : {};
+  return ecosystem === "npm" ? npmRegistryFor(p, cwd, env) : pypiIndexFor(p, env);
 }
 
 function cmdScan(): number {
@@ -164,6 +210,7 @@ function cmdScan(): number {
 
 async function cmdAudit(args: string[]): Promise<number> {
   const json = flag(args, "--json");
+  rejectExtra(args);
   const cfg = loadConfig();
   const deps = createDeps({ cacheDir: PATHS.cache, atlasUrl: cfg.webUrl });
   const r = await audit(process.cwd(), { alerts: () => fetchAtlasAlerts(cfg.webUrl), osv: deps.osv });
@@ -178,7 +225,7 @@ async function cmdAudit(args: string[]): Promise<number> {
     if (r.findings.length === 0) out(r.errors.length ? "no findings in what could be checked" : "✓ no hallucinated-then-registered names and no known-malicious packages");
   }
   if (r.findings.length > 0) return 1;
-  return r.errors.length > 0 ? 2 : 0;
+  return r.errors.length > 0 ? 2 : 0; // incomplete: some sources could not be checked
 }
 
 function cmdWatch(): number {
@@ -237,7 +284,10 @@ async function cmdStatus(): Promise<number> {
 }
 
 function cmdLog(args: string[]): number {
-  const n = Number(opt(args, "-n") ?? 20);
+  const raw = opt(args, "-n");
+  rejectExtra(args);
+  const n = Number(raw ?? 20);
+  if (!Number.isInteger(n) || n < 1) throw new UsageError(`-n needs a positive whole number, got '${raw}'`);
   let lines: string[] = [];
   try {
     lines = readFileSync(PATHS.log, "utf8").trim().split("\n").slice(-n);
@@ -258,6 +308,7 @@ function cmdLog(args: string[]): number {
 }
 
 async function cmdKey(args: string[]): Promise<number> {
+  rejectExtra(args, 1);
   const sub = args[0] ?? "status";
   if (sub === "pair") return (await pairKey(out)) ? 0 : 1;
   if (sub === "status") {
@@ -276,11 +327,11 @@ async function cmdKey(args: string[]): Promise<number> {
     }
     return 0;
   }
-  err("usage: ladon key pair|status");
-  return 2;
+  throw new UsageError(`unknown subcommand '${sub}'`);
 }
 
 async function cmdPasskey(args: string[]): Promise<number> {
+  rejectExtra(args, 1);
   const sub = args[0] ?? "list";
   if (sub === "pair") {
     const since = Date.now() - 5000;
@@ -291,19 +342,24 @@ async function cmdPasskey(args: string[]): Promise<number> {
   if (sub === "list") {
     const pinned = loadConfig().passkeys;
     for (const p of pinned) out(`  ✓ pinned  ${p.label ?? "passkey"}  ${p.credentialId.slice(0, 12)}…  counter ${p.counter}`);
-    const server = await serverPasskeys().catch(() => []);
+    let unreachable = "";
+    const server = await serverPasskeys().catch((e: unknown) => {
+      unreachable = e instanceof Error ? e.message : String(e);
+      return [];
+    });
     for (const p of server.filter((x) => !pinned.some((y) => y.credentialId === x.credentialId))) out(`  ✗ NOT pinned (approvals from it are ignored)  ${p.label ?? "passkey"}  ${p.credentialId.slice(0, 12)}…`);
     if (pinned.length === 0 && server.length === 0) out("no passkeys — ladon passkey pair");
+    if (unreachable) out(`▲ could not list passkeys on the web app (${unreachable}); only the pinned ones are shown`);
     return 0;
   }
-  err("usage: ladon passkey pair|list");
-  return 2;
+  throw new UsageError(`unknown subcommand '${sub}'`);
 }
 
 async function cmdAllow(args: string[]): Promise<number> {
   const pypi = flag(args, "--pypi");
   const list = flag(args, "--list");
   const remove = flag(args, "--remove");
+  rejectExtra(args, list ? 0 : 1);
   if (list) {
     const cfg = loadConfig();
     const v = await verifiedAllowlist(cfg, loadState());
@@ -312,9 +368,10 @@ async function cmdAllow(args: string[]): Promise<number> {
     for (const r of v.rejected) out(`  ■ ${entryLabel(r.entry).padEnd(40)} IGNORED — ${r.reason}`);
     return 0;
   }
-  const target = args[0] ? parseTarget(args[0], pypi) : null;
+  if (!args[0]) throw new UsageError("missing package name");
+  const target = parseTarget(args[0], pypi);
   if (!target) {
-    err("usage: ladon allow <pkg>[@exact-version] [--pypi]\n       ladon allow --remove <pkg>[@version]\n       ladon allow --list");
+    err(`ladon: "${args[0]}" is not a registry package name`);
     return 2;
   }
   const key = allowTarget(target.ecosystem, target.name);
@@ -372,6 +429,16 @@ async function cmdAllow(args: string[]): Promise<number> {
 
 export async function main(argv: string[]): Promise<number> {
   const [cmd, ...args] = argv;
+  try {
+    return await route(cmd, args);
+  } catch (e) {
+    if (!(e instanceof UsageError)) throw e;
+    err(`ladon ${cmd}: ${e.message}\nusage: ${USAGE[cmd ?? ""] ?? "ladon --help"}`);
+    return 2;
+  }
+}
+
+async function route(cmd: string | undefined, args: string[]): Promise<number> {
   switch (cmd) {
     case undefined:
     case "help":
@@ -383,18 +450,24 @@ export async function main(argv: string[]): Promise<number> {
     case "--version":
       out(LADON_VERSION);
       return 0;
-    case "init":
-      await init({ project: flag(args, "--project"), cursor: flag(args, "--cursor"), codex: flag(args, "--codex"), shell: flag(args, "--shell"), offline: flag(args, "--offline"), passkey: flag(args, "--passkey"), atlasReports: flag(args, "--atlas-reports") });
+    case "init": {
+      const o = { project: flag(args, "--project"), cursor: flag(args, "--cursor"), codex: flag(args, "--codex"), shell: flag(args, "--shell"), offline: flag(args, "--offline"), passkey: flag(args, "--passkey"), atlasReports: flag(args, "--atlas-reports") };
+      rejectExtra(args);
+      await init(o);
       return 0;
+    }
     case "check":
       return cmdCheck(args);
     case "scan":
+      rejectExtra(args);
       return cmdScan();
     case "watch":
+      rejectExtra(args);
       return cmdWatch();
     case "audit":
       return cmdAudit(args);
     case "status":
+      rejectExtra(args);
       return cmdStatus();
     case "log":
       return cmdLog(args);
@@ -405,6 +478,7 @@ export async function main(argv: string[]): Promise<number> {
     case "allow":
       return cmdAllow(args);
     case "daemon":
+      rejectExtra(args);
       await runDaemon();
       return new Promise<number>(() => {}); // run until signalled
     case "hook": {
@@ -418,7 +492,9 @@ export async function main(argv: string[]): Promise<number> {
       return 2;
     }
     case "shim": {
+      rejectExtra(args, 1);
       const sub = args[0] ?? "status";
+      if (!["install", "uninstall", "status"].includes(sub)) throw new UsageError(`unknown subcommand '${sub}'`);
       if (sub === "install") {
         installShims();
         out(`✓ shims in ${PATHS.shims}\n${shimsActive() ? "✓ active" : `add to your shell rc:\n  ${PATH_LINE}`}`);
@@ -443,6 +519,7 @@ export async function main(argv: string[]): Promise<number> {
     case "daemon-start":
       return (await ensureDaemon()) ? 0 : 1;
     case "config": {
+      rejectExtra(args);
       // read-only view; security settings are edited by hand in ~/.ladon/config.json on purpose
       const c = loadConfig();
       out(JSON.stringify({ ...c, device: c.device ? { ...c.device, token: "…" } : undefined }, null, 2));

@@ -5,9 +5,17 @@
 
 const argv = process.argv.slice(2);
 
-function failClosed(e: unknown): never {
-  const why = `Ladon could not start (${e instanceof Error ? e.message.split("\n")[0] : String(e)}). Failing closed.`;
+const firstLine = (e: unknown) => (e instanceof Error ? e.message.split("\n")[0] : String(e));
+
+function failClosed(e: unknown, stage: "load" | "run" = "load"): never {
   const [cmd, sub] = argv;
+  // An interactive command that fails at run time (web unreachable, Key port missing, …) is not a broken
+  // install: say what went wrong instead of "could not start". Hooks and shims keep failing closed below.
+  if (stage === "run" && cmd !== "hook" && cmd !== "shim-exec") {
+    process.stderr.write(`ladon: ${firstLine(e)}\n`);
+    process.exit(1);
+  }
+  const why = `Ladon could not ${stage === "load" ? "start" : "finish"} (${firstLine(e)}). Failing closed.`;
   if (cmd === "hook" && sub === "claude-pre-tool-use") {
     process.stdout.write(
       JSON.stringify({
@@ -39,6 +47,6 @@ function failClosed(e: unknown): never {
 }
 
 import("./main.js").then(
-  ({ main }) => main(argv).then((code) => process.exit(code), failClosed),
-  failClosed,
+  ({ main }) => main(argv).then((code) => process.exit(code), (e: unknown) => failClosed(e, "run")),
+  (e: unknown) => failClosed(e, "load"),
 );

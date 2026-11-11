@@ -53,6 +53,10 @@ describe("manifest parsing", () => {
     expect(parseManifest("package.json", "{not json").ok).toBe(false);
     expect(parseManifest("package.json", "[]").ok).toBe(false);
     expect(parseManifest("package.json", "{}").ok).toBe(false);
+    // array-shaped sections are not dependency maps — their indexes must not become package "0"
+    const arr = parseManifest("package.json", JSON.stringify({ dependencies: ["lodash"], devDependencies: { vitest: "^4" } }));
+    expect(arr.ok && arr.targets.map((t) => t.name)).toEqual(["vitest"]);
+    expect(parseManifest("package.json", JSON.stringify({ dependencies: ["lodash"] })).ok).toBe(false);
     expect(parseManifest("Cargo.toml", "x").ok).toBe(false);
     expect(parseManifest("requirements.txt", "x\n".repeat(110 * 1024)).ok).toBe(false);
   });

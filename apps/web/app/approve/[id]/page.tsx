@@ -27,7 +27,7 @@ export default async function ApprovePage({ params }: { params: Promise<{ id: st
         <p className="mt-3 text-muted">
           {failed
             ? "The approvals database is unreachable. The install stays blocked until it can be approved."
-            : "This link doesn't match an approval request. Use the link your terminal printed, or check the code with the agent's output."}
+            : "This link doesn't match an approval request. Use the exact link your terminal printed — the install stays blocked until it is approved there."}
         </p>
       </div>
     );

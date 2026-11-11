@@ -208,3 +208,59 @@ describe("unverifiable specs", () => {
     expect(unverifiableReport("github:a/b", "npm", now).verdict).toBe("warn");
   });
 });
+
+describe("review regressions", () => {
+  it("prose that mentions Ladon commands is not a tamper attempt; running them still is", () => {
+    for (const ok of ['git commit -m "Ladon init refreshes stale hooks"', 'git commit -m "fix: Ladon Config is preserved"', "grep -n Ladon ~/.claude/settings.json 2>/dev/null", "rg hooks .claude/settings.json 2>&1 | head"]) {
+      expect(tamperReasonBash(ok), ok).toBeNull();
+    }
+    for (const bad of ["LADON init", "pnpm Ladon key pair", 'bash -c "LADON Shim uninstall"', "node packages/cli/dist/INDEX.JS config", "echo x > ~/.claude/settings.json 2>/dev/null"]) {
+      expect(tamperReasonBash(bad), bad).not.toBeNull();
+    }
+  });
+
+  it("-r files are read even when the same pip command also has --find-links or named packages", async () => {
+    const { parseInstallCommand } = await import("@ladon/core");
+    const { targetsFor, loadLockfiles } = await import("./gate.js");
+    const dir = mkdtempSync(join(tmpdir(), "ladon-req-"));
+    writeFileSync(join(dir, "req.txt"), "evil-pkg==1.0\n");
+    for (const cmd of ["pip install --no-index -f ./wheels -r req.txt", "pip install -r req.txt requests", "uvx --with-requirements req.txt ruff"]) {
+      const names = parseInstallCommand(cmd).flatMap((p) => targetsFor(p, dir, loadLockfiles(dir)).targets.map((t) => t.name));
+      expect(names, cmd).toContain("evil-pkg");
+    }
+  });
+
+  it("a pre-proof daemon of this same install is recognised by its command line (so it can be replaced)", async () => {
+    const { spawn } = await import("node:child_process");
+    const { isOurDaemonProcess } = await import("./client.js");
+    const dir = mkdtempSync(join(tmpdir(), "ladon-old-daemon-"));
+    const entry = join(dir, "index.js");
+    writeFileSync(entry, "setTimeout(() => {}, 30000);\n");
+    const child = spawn(process.execPath, [entry, "daemon"], { stdio: "ignore" });
+    try {
+      await new Promise((r) => setTimeout(r, 200));
+      expect(isOurDaemonProcess(child.pid!, entry)).toBe(process.platform !== "win32");
+      expect(isOurDaemonProcess(child.pid!, join(dir, "other.js"))).toBe(false);
+      expect(isOurDaemonProcess(process.pid, entry)).toBe(false);
+    } finally {
+      child.kill();
+    }
+  });
+});
+
+describe("npx of a locally installed bin", () => {
+  it("is not checked against the registry; pnpm dlx and pinned versions still are", async () => {
+    const { targetsFor } = await import("./gate.js");
+    const { parseInstallCommand } = await import("@ladon/core");
+    const proj = mkdtempSync(join(tmpdir(), "ladon-bin-"));
+    mkdirSync(join(proj, ".git"));
+    mkdirSync(join(proj, "node_modules", ".bin"), { recursive: true });
+    writeFileSync(join(proj, "node_modules", ".bin", "tsc"), "");
+    const lock = { has: () => false, versions: () => [] } as unknown as Parameters<typeof targetsFor>[2];
+    const t = (c: string) => targetsFor(parseInstallCommand(c)[0]!, proj, lock).targets.map((x) => x.name);
+    expect(t("npx tsc")).toEqual([]);
+    expect(t("npx tsc@5.0.0")).toEqual(["tsc"]);
+    expect(t("npx evil-tool")).toEqual(["evil-tool"]);
+    expect(t("pnpm dlx tsc")).toEqual(["tsc"]);
+  });
+});

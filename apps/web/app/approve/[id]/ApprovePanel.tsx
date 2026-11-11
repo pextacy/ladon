@@ -17,11 +17,12 @@ export function ApprovePanel({ initial, serverNow }: { initial: PublicApproval; 
   const skew = useRef(serverNow - Math.floor(Date.now() / 1000));
   const [now, setNow] = useState(serverNow);
 
-  // countdown, using the server clock
+  // countdown, using the server clock; stops once the request is decided
   useEffect(() => {
+    if (a.status !== "pending") return;
     const t = setInterval(() => setNow(Math.floor(Date.now() / 1000) + skew.current), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [a.status]);
 
   // pick up decisions made elsewhere (Ladon Key, another phone)
   useEffect(() => {
@@ -47,7 +48,7 @@ export function ApprovePanel({ initial, serverNow }: { initial: PublicApproval; 
       const optionsJSON = await postJson<PublicKeyCredentialRequestOptionsJSON>(`/api/approvals/${encodeURIComponent(a.id)}/options`, { decision });
       const response = await startAuthentication({ optionsJSON });
       const r = await postJson<{ ok: boolean; status: PublicApproval["status"] }>(`/api/approvals/${encodeURIComponent(a.id)}/decide`, { decision, response });
-      setA({ ...a, status: r.status });
+      setA((prev) => ({ ...prev, status: r.status }));
     } catch (e) {
       setError(passkeyErrorMessage(e));
       try {
@@ -77,7 +78,9 @@ export function ApprovePanel({ initial, serverNow }: { initial: PublicApproval; 
             <span className="text-muted">{a.ecosystem}:</span>
             {pkg}
           </h1>
-          <p className="mt-1 text-sm text-muted">Your coding agent wants to install this. It is blocked until you decide.</p>
+          <p className="mt-1 text-sm text-muted">
+            {status === "pending" ? "Your coding agent wants to install this. It is blocked until you decide." : "Your coding agent asked to install this. The outcome is below."}
+          </p>
         </div>
 
         <div className="px-5 py-4">
@@ -85,12 +88,12 @@ export function ApprovePanel({ initial, serverNow }: { initial: PublicApproval; 
             {a.reasons.slice(0, 3).map((r, i) => (
               <li key={i} className="flex gap-3">
                 <span aria-hidden="true" className="font-mono text-hold">{i + 1}</span>
-                <span>{r}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere]">{r}</span>
               </li>
             ))}
           </ol>
           {a.intent && (
-            <p className={`mt-4 border-t border-line pt-3 text-[15px] ${a.intent.drift === "strong" ? "font-semibold text-hold" : a.intent.drift === "weak" ? "text-warn" : "text-muted"}`}>
+            <p className={`mt-4 border-t border-line pt-3 text-[15px] [overflow-wrap:anywhere] ${a.intent.drift === "strong" ? "font-semibold text-hold" : a.intent.drift === "weak" ? "text-warn" : "text-muted"}`}>
               <span className="font-mono">{a.intent.drift === "none" ? "✓" : a.intent.drift === "weak" ? "▲" : "■"}</span> Install {DRIFT_WORD[a.intent.drift]}
               {a.intent.reason ? `: ${a.intent.reason}` : "."}
             </p>
@@ -130,7 +133,7 @@ export function ApprovePanel({ initial, serverNow }: { initial: PublicApproval; 
         {status === "expired" && <Final tone="muted" mark="EXPIRED" text="Nobody answered in time, so the install stayed blocked. If you still want it, ask the agent to try again." />}
         {error && <p className="mt-4 rounded-lg border border-warn bg-warn-bg px-4 py-3">{error}</p>}
       </div>
-      <p className="mt-8 text-center font-mono text-xs text-muted">request {a.id}</p>
+      <p className="mt-8 text-center font-mono text-xs break-all text-muted">request {a.id}</p>
     </div>
   );
 }

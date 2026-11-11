@@ -57,7 +57,7 @@ function DecisionTable({ rows, caption, empty }: { rows: DecisionRecord[]; capti
                 {OUTCOME_LABEL[d.outcome]}
                 {d.via ? <span className="text-muted"> ({d.via === "key" ? "Ladon Key" : "passkey"})</span> : null}
               </td>
-              <td className="px-4 py-2.5">{d.reasons[0] ?? <span className="text-muted">—</span>}</td>
+              <td className="px-4 py-2.5 [overflow-wrap:anywhere]">{d.reasons[0] ?? <span className="text-muted">—</span>}</td>
             </tr>
           ))}
         </tbody>
@@ -134,7 +134,7 @@ function Approvers({ keys, passkeys }: { keys: DeviceKeyRecord[]; passkeys: Pass
             <tr key={r.id} className="border-b border-line last:border-b-0">
               <th scope="row" className="px-4 py-2.5 font-medium">{r.label}</th>
               <td className="px-4 py-2.5">{r.kind}</td>
-              <td className="px-4 py-2.5 font-mono">{r.ident}</td>
+              <td className="px-4 py-2.5 font-mono break-all">{r.ident}</td>
               <td className="px-4 py-2.5 font-mono whitespace-nowrap text-muted">{shortDate(r.since)}</td>
             </tr>
           ))}

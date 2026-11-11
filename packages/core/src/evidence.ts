@@ -77,6 +77,8 @@ export interface Evidence {
   ecosystem: Ecosystem;
   name: string;
   requested?: string;
+  /** a version spec was given but nothing on the registry satisfies it; `version` is then the latest (the install itself would fail) */
+  versionUnmatched?: boolean;
   /** resolved concrete version, when the package exists */
   version?: string;
   /** true/false when known; null when the registry could not be reached */

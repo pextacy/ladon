@@ -50,7 +50,7 @@ const PIP_LONG_VALUE = [
   "--root", "--prefix", "--src", "--upgrade-strategy", "--config-settings", "--global-option", "--no-binary", "--only-binary",
   "--progress-bar", "--root-user-action", "--report", "--index-url", "--extra-index-url", "--find-links", "--log", "--proxy",
   "--retries", "--timeout", "--exists-action", "--trusted-host", "--cert", "--client-cert", "--cache-dir", "--python",
-  "--use-feature", "--use-deprecated", "--keyring-provider", "--resume-retries", "--group", "--dest",
+  "--use-feature", "--use-deprecated", "--keyring-provider", "--resume-retries", "--group", "--dest", "--wheel-dir",
 ];
 const PIP_VALUE_FLAGS = new Set([
   ...PIP_LONG_VALUE,
@@ -63,6 +63,8 @@ const PIP_VALUE_FLAGS = new Set([
   "--no-build-package", "--no-binary-package", "--bounds", "-E", "--extras", "--env-file",
 ]);
 
+/** pip wheel -w/--wheel-dir DIR (pip only: other tools use -w differently). */
+const PIP_ONLY_VALUE_FLAGS = new Set([...PIP_VALUE_FLAGS, "-w", "--wheel-dir"]);
 /** poetry add -e/--editable is a boolean ("add path deps as editable"). */
 const POETRY_VALUE_FLAGS = new Set([...PIP_VALUE_FLAGS].filter((f) => f !== "-e" && f !== "--editable"));
 /** pip boolean long options — needed so abbreviations resolve like optparse (exact match wins, ambiguity = no match). */
@@ -533,7 +535,7 @@ function setPyRegistry(res: ParsedInstall, flags: Map<string, string[]>) {
 }
 
 function pipLike(manager: Manager, args: string[], argv: string[], kind?: InstallKind): ParsedInstall {
-  const { pos, flags } = positionals(args, manager === "poetry" ? POETRY_VALUE_FLAGS : PIP_VALUE_FLAGS, {
+  const { pos, flags } = positionals(args, manager === "poetry" ? POETRY_VALUE_FLAGS : manager === "pip" ? PIP_ONLY_VALUE_FLAGS : PIP_VALUE_FLAGS, {
     pyStyle: true,
     ...(manager === "pip" ? { abbrev: PIP_LONG_VALUE, booleans: PIP_LONG_BOOL } : {}),
   });

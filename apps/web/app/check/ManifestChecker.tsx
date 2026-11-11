@@ -5,6 +5,7 @@ import { VerdictCard } from "@/app/components/VerdictCard";
 import { VerdictMark } from "@/app/components/Verdict";
 import type { CheckResult } from "@/lib/checker";
 import { postJson } from "@/lib/client";
+import { plural } from "@/lib/format";
 
 type Verdict = "allow" | "warn" | "hold";
 interface ManifestResponse {
@@ -48,12 +49,23 @@ export function ManifestChecker() {
     if (f.size > MAX_BYTES) return setError("That file is larger than 200 KB.");
     const kind = kindOf(f.name);
     if (!kind) return setError("Pick a package.json, requirements.txt, pyproject.toml or Pipfile.");
-    setFilename(kind);
-    setContent(await f.text());
+    try {
+      const text = await f.text();
+      setFilename(kind);
+      setContent(text);
+      setRes(null);
+    } catch {
+      setError("That file could not be read. Paste its contents instead.");
+    }
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
+    if (new Blob([content]).size > MAX_BYTES) {
+      setRes(null);
+      return setError("That manifest is larger than 200 KB.");
+    }
     setBusy(true);
     setError(null);
     setRes(null);
@@ -113,6 +125,7 @@ export function ManifestChecker() {
               onClick={() => {
                 setContent("");
                 setRes(null);
+                setError(null);
                 if (fileRef.current) fileRef.current.value = "";
               }}
               className="text-sm underline"
@@ -131,7 +144,7 @@ export function ManifestChecker() {
             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line pb-3">
               <VerdictMark verdict={res.overall} size="md" />
               <p>
-                {res.results.length} dependencies · {counts.hold} held · {counts.warn} warned
+                {plural(res.results.length, "dependency", "dependencies")} · {counts.hold} held · {counts.warn} warned
               </p>
             </div>
             {res.skipped.length > 0 && (
@@ -140,9 +153,9 @@ export function ManifestChecker() {
                   <span className="chev mr-1" aria-hidden="true">›</span>
                   {res.skipped.length} not checked
                 </summary>
-                <ul className="mt-2 list-disc pl-5 font-mono">
-                  {res.skipped.map((s) => (
-                    <li key={s}>{s}</li>
+                <ul className="mt-2 list-disc pl-5 font-mono [overflow-wrap:anywhere]">
+                  {res.skipped.map((s, i) => (
+                    <li key={i}>{s}</li>
                   ))}
                 </ul>
               </details>

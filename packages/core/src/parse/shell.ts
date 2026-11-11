@@ -22,19 +22,138 @@ interface Tokenized {
   segments: Segment[];
   /** scripts inside $(…), `…`, <(…), >(…) — run by the shell */
   subs: string[];
+  /** here-document bodies (data — unless a shell reads them as its script: `bash <<EOF`) */
+  heredocBodies: string[];
 }
 
 const OPERATORS = ["&&", "||", ";;", "|&", ";", "|", "&", "\n"];
 const MAX_DEPTH = 10;
 
+interface Heredoc {
+  delim: string;
+  /** `<<-`: leading tabs are stripped from body lines and the delimiter line */
+  strip: boolean;
+  /** any part of the delimiter was quoted: the body is literal (no `$(…)` / backticks run) */
+  quoted: boolean;
+}
+
+/**
+ * The delimiter word after `<<` / `<<-` (at `j`). Quotes/backslashes are removed and mark the body as
+ * literal, like bash. Returns null when no word follows (a syntax error — treated as a plain redirection).
+ */
+function readHeredocDelim(input: string, j: number): { delim: string; quoted: boolean; end: number } | null {
+  while (input[j] === " " || input[j] === "\t") j++;
+  let delim = "";
+  let quoted = false;
+  while (j < input.length && !/[\s;&|<>()]/.test(input[j]!)) {
+    const c = input[j]!;
+    if (c === "'" || c === '"') {
+      quoted = true;
+      const e = input.indexOf(c, j + 1);
+      const stop = e === -1 ? input.length : e;
+      delim += input.slice(j + 1, stop);
+      j = stop + 1;
+      continue;
+    }
+    if (c === "\\" && j + 1 < input.length) {
+      quoted = true;
+      delim += input[j + 1];
+      j += 2;
+      continue;
+    }
+    delim += c;
+    j++;
+  }
+  // `1<<2` inside `(( … ))` is a shift, not a here-document; nobody names a delimiter with digits only
+  return delim === "" || (!quoted && /^\d+$/.test(delim)) ? null : { delim, quoted, end: j };
+}
+
+/**
+ * Skip the bodies of pending here-documents, starting at `i` (just after the newline that ends the
+ * command line). The body is data, not commands — but an unquoted body still runs its `$(…)` and
+ * backticks, so those are collected into `subs`. Returns the index after the last terminator line.
+ */
+function skipHeredocs(input: string, i: number, pending: Heredoc[], subs?: string[], bodies?: string[]): number {
+  for (const h of pending) {
+    const bodyStart = i;
+    let bodyEnd = input.length;
+    while (i < input.length) {
+      const nl = input.indexOf("\n", i);
+      const lineEnd = nl === -1 ? input.length : nl;
+      const line = input.slice(i, lineEnd);
+      if ((h.strip ? line.replace(/^\t+/, "") : line) === h.delim) {
+        bodyEnd = i;
+        i = nl === -1 ? input.length : nl + 1;
+        break;
+      }
+      i = nl === -1 ? input.length : nl + 1;
+    }
+    const body = input.slice(bodyStart, bodyEnd);
+    bodies?.push(body);
+    if (!h.quoted && subs) collectSubs(body, subs, false);
+  }
+  return i;
+}
+
+/** `$(…)` / backtick bodies inside literal-ish text (here-doc body, array literal) — the shell runs them. */
+function collectSubs(text: string, subs: string[], singleQuotes: boolean) {
+  let k = 0;
+  while (k < text.length) {
+    const c = text[k]!;
+    if (c === "\\") {
+      k += 2;
+      continue;
+    }
+    if (singleQuotes && c === "'") {
+      const e = text.indexOf("'", k + 1);
+      k = e === -1 ? text.length : e + 1;
+      continue;
+    }
+    if (c === "$" && text[k + 1] === "(") {
+      const end = closeParen(text, k + 2);
+      subs.push(text.slice(k + 2, end));
+      k = end + 1;
+      continue;
+    }
+    if (c === "`") {
+      const end = closeBacktick(text, k + 1);
+      subs.push(text.slice(k + 1, end).replace(/\\([`$\\])/g, "$1"));
+      k = end + 1;
+      continue;
+    }
+    k++;
+  }
+}
+
 /** Index of the `)` closing a `$(` / `<(` whose body starts at `start`; input.length if unterminated. */
 function closeParen(input: string, start: number): number {
   let depth = 1;
   let i = start;
+  let pending: Heredoc[] = [];
   while (i < input.length) {
     const c = input[i]!;
     if (c === "\\") {
       i += 2;
+      continue;
+    }
+    if (c === "#" && (i === start || /[\s;&|()]/.test(input[i - 1]!))) {
+      // comment: an apostrophe in it must not open a quote
+      while (i < input.length && input[i] !== "\n") i++;
+      continue;
+    }
+    if (c === "<" && input[i + 1] === "<" && input[i + 2] !== "<") {
+      // here-document: its body may contain `)` or quotes that mean nothing to the shell
+      const strip = input[i + 2] === "-";
+      const d = readHeredocDelim(input, i + (strip ? 3 : 2));
+      if (d) {
+        pending.push({ delim: d.delim, strip, quoted: d.quoted });
+        i = d.end;
+        continue;
+      }
+    }
+    if (c === "\n" && pending.length > 0) {
+      i = skipHeredocs(input, i + 1, pending);
+      pending = [];
       continue;
     }
     if (c === "'") {
@@ -76,11 +195,14 @@ function closeBacktick(input: string, start: number): number {
 function tokenize(input: string): Tokenized {
   const segments: Segment[] = [];
   const subs: string[] = [];
+  const heredocBodies: string[] = [];
   let words: string[] = [];
   let word = "";
   let inWord = false;
   /** the next word is a redirection target (file name), not an argument */
   let skipNext = false;
+  /** here-documents whose bodies start after the next newline */
+  let heredocs: Heredoc[] = [];
   let i = 0;
 
   const endWord = () => {
@@ -184,6 +306,16 @@ function tokenize(input: string): Tokenized {
         inWord = false;
       } else endWord();
       let j = i + 1;
+      if (c === "<" && input[j] === "<" && input[j + 1] !== "<") {
+        // here-document `<<WORD` / `<<-WORD`: the body (following lines) is data, not commands
+        const strip = input[j + 1] === "-";
+        const d = readHeredocDelim(input, j + (strip ? 2 : 1));
+        if (d) {
+          heredocs.push({ delim: d.delim, strip, quoted: d.quoted });
+          i = d.end;
+          continue;
+        }
+      }
       if (c === "<" && input[j] === "<") {
         j++;
         if (input[j] === "<" || input[j] === "-") j++;
@@ -205,6 +337,18 @@ function tokenize(input: string): Tokenized {
     if (op) {
       endSegment();
       i += op.length;
+      if (op === "\n" && heredocs.length > 0) {
+        i = skipHeredocs(input, i, heredocs, subs, heredocBodies);
+        heredocs = [];
+      }
+      continue;
+    }
+    if (c === "(" && inWord && /^[A-Za-z_][A-Za-z0-9_]*\+?=$/.test(word)) {
+      // array assignment `arr=(a b c)`: words, not a subshell — but `$(…)` inside still runs
+      const end = closeParen(input, i + 1);
+      collectSubs(input.slice(i + 1, end), subs, true);
+      word += input.slice(i, Math.min(end + 1, input.length));
+      i = end + 1;
       continue;
     }
     if (c === "(" || c === ")") {
@@ -229,7 +373,7 @@ function tokenize(input: string): Tokenized {
     i++;
   }
   endSegment();
-  return { segments, subs };
+  return { segments, subs, heredocBodies };
 }
 
 /** Split a command line into simple-command segments of words. */
@@ -309,13 +453,31 @@ function shellScript(words: string[]): string | undefined {
   return undefined;
 }
 
+/** `bash`, `sh -s`, `bash -x -s -- args`: no script file operand, so commands come from stdin. */
+function readsStdin(words: string[]): boolean {
+  for (let k = 1; k < words.length; k++) {
+    const w = words[k]!;
+    if (w === "-s" || /^-[A-Za-z]*s[A-Za-z]*$/.test(w)) return true;
+    if (w === "--") return k + 1 >= words.length;
+    if (w === "-o" || w === "+o" || w === "-O" || w === "+O" || w === "--rcfile" || w === "--init-file") {
+      k++;
+      continue;
+    }
+    if (/^[-+]/.test(w)) continue;
+    return false; // a script file
+  }
+  return true;
+}
+
 /**
  * Strip leading env assignments and wrapper commands; expand `bash -c "..."`, `eval`, command
  * substitutions recursively. Returns the effective simple commands with their context.
  */
 export function effectiveCommandsDetailed(input: string, depth = 0, inherited: Record<string, string> = {}): EffectiveCommand[] {
   const out: EffectiveCommand[] = [];
-  const { segments, subs } = tokenize(input);
+  const { segments, subs, heredocBodies } = tokenize(input);
+  /** a shell with no script argument reads its commands from stdin — e.g. a here-document */
+  let shellReadsStdin = false;
   const exported: Record<string, string> = { ...inherited };
   for (const seg of segments) {
     let words = [...seg];
@@ -397,6 +559,7 @@ export function effectiveCommandsDetailed(input: string, depth = 0, inherited: R
         if (depth < MAX_DEPTH) out.push(...effectiveCommandsDetailed(script, depth + 1, env));
         continue;
       }
+      if (readsStdin(words)) shellReadsStdin = true;
     }
     if (head !== undefined && /^(pwsh|powershell|cmd)(\.exe)?$/i.test(basename(head))) {
       const cIdx = words.findIndex((w, k) => k > 0 && /^([-/](c|command)|\/k)$/i.test(w));
@@ -408,6 +571,8 @@ export function effectiveCommandsDetailed(input: string, depth = 0, inherited: R
     if (words.length > 0) out.push({ words, stdinArgs, env });
   }
   if (depth < MAX_DEPTH) for (const s of subs) out.push(...effectiveCommandsDetailed(s, depth + 1, exported));
+  // `bash <<EOF … EOF`, `cat <<EOF | sh`: the body is the script
+  if (shellReadsStdin && depth < MAX_DEPTH) for (const b of heredocBodies) out.push(...effectiveCommandsDetailed(b, depth + 1, exported));
   return out;
 }
 

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { LADON_HOME, PATHS } from "./config.js";
+import { LADON_HOME, PATHS, stableNodePath } from "./config.js";
 
 /**
  * Guard-the-guards (PRD §3): the Aug 2026 worm persisted by planting hooks in AI coding tools.
@@ -227,13 +227,14 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const quotedForms = (p: string) => [p, `'${p.replace(/'/g, `'\\''`)}'`];
 /** Every hook subcommand init.ts installs (Claude Code, Cursor, Codex). */
 const OWN_HOOKS = "claude-pre-tool-use|claude-session-start|cursor|cursor-before-shell|cursor-before-submit-prompt|codex-pre-tool-use";
-export function isOwnHook(item: string, cliPath = CLI_PATH, nodePath = process.execPath): boolean {
-  const m = /^hook\|[A-Za-z]+(?:\([^)]*\))?: (.*)$/.exec(item);
+export function isOwnHook(item: string, cliPath = CLI_PATH, nodePath: string | string[] = [process.execPath, stableNodePath()]): boolean {
+  // The matcher may itself contain parentheses (Codex: `^(Bash|shell|…)$`), so it ends at the first `): `.
+  const m = /^hook\|[A-Za-z]+(?:\((?:[^)]|\)(?!: ))*\))?: (.*)$/.exec(item);
   if (!m) return false;
   const cmd = m[1]!.trim();
   // The interpreter must be exactly this Node binary (or a bare `node` from PATH) — not any file whose
   // name merely ends in "node" (`/tmp/evilnode /…/index.js hook cursor` would otherwise be exempt).
-  const nodes = ["node", ...quotedForms(nodePath)].map(esc).join("|");
+  const nodes = ["node", ...[nodePath].flat().flatMap(quotedForms)].map(esc).join("|");
   const clis = quotedForms(cliPath).map(esc).join("|");
   return new RegExp(`^(?:${nodes}) (?:${clis}) hook (?:${OWN_HOOKS})$`).test(cmd);
 }
