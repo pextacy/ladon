@@ -115,3 +115,26 @@ describe("format", () => {
     expect(m).toContain("Do not retry");
   });
 });
+
+describe("cachedIntentJudge (deterministic stand-in for temperature 0)", async () => {
+  const { cachedIntentJudge, intentCacheKey } = await import("./ai/intent.js");
+  const { MemoryCache } = await import("./sources/cache.js");
+  const input = { userRequest: "make the navbar sticky", recentAgentSteps: ["read AGENTS.md"], install: { eco: "npm" as const, name: "color-fn-utils" }, packageSummary: "", ruleHits: ["very_new"] };
+
+  it("returns the first validated answer for identical input, never caches failures", async () => {
+    const answers = [null, { drift: "strong", reason: "unrelated to the navbar", suspectedSource: "instruction_file" }, { drift: "none", reason: "different", suspectedSource: "user" }] as const;
+    let calls = 0;
+    const judge = cachedIntentJudge(async () => (answers[calls++] ?? null) as never, new MemoryCache());
+    expect(await judge(input)).toBeNull(); // transient failure, not cached
+    const a = await judge(input);
+    const b = await judge({ ...input, recentAgentSteps: [...input.recentAgentSteps] });
+    expect(a?.drift).toBe("strong");
+    expect(b).toEqual(a);
+    expect(calls).toBe(2);
+  });
+
+  it("keys change with any judged field and ignore key order", () => {
+    expect(intentCacheKey(input)).toBe(intentCacheKey({ ruleHits: ["very_new"], packageSummary: "", install: { name: "color-fn-utils", eco: "npm" }, recentAgentSteps: ["read AGENTS.md"], userRequest: "make the navbar sticky" }));
+    expect(intentCacheKey(input)).not.toBe(intentCacheKey({ ...input, userRequest: "add a date picker" }));
+  });
+});

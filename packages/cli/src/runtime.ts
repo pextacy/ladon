@@ -1,11 +1,11 @@
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { IntentInput, IntentResult } from "@ladon/core";
+import { cachedIntentJudge, FileCache, type IntentInput, type IntentResult } from "@ladon/core";
 import { KeyBridge } from "./approve/key.js";
 import { passkeyApprover } from "./approve/passkey.js";
 import type { Approver } from "./approve/types.js";
-import { LADON_HOME } from "./config.js";
+import { LADON_HOME, PATHS } from "./config.js";
 import type { GateEnv } from "./gate.js";
 
 /** Optional ~/.ladon/env (KEY=VALUE lines) so the daemon gets ANTHROPIC_API_KEY / LADON_AI without a shell rc. */
@@ -35,7 +35,8 @@ export async function intentJudge(): Promise<((i: IntentInput) => Promise<Intent
   const ai = await import("@ladon/core/ai").catch(() => null);
   if (!ai || !ai.aiEnabled()) return undefined;
   const provider = ai.anthropicProvider({ timeoutMs: 12_000 });
-  return (i) => provider.judgeIntent(i);
+  // same input → same decision for 24 h (stands in for temperature 0, which the API rejects)
+  return cachedIntentJudge((i) => provider.judgeIntent(i), new FileCache(PATHS.cache));
 }
 
 export async function gateEnv(): Promise<GateEnv> {
